@@ -1,2 +1,4 @@
 id,name,fsn,semantic_tag,definition,icd11_code,mesh_id,status
 44054006,Diabetes mellitus type 2 , Diabetes mellitus type 2 (disorder),disorder,,5A11,D003924,Active
+84757009,Epilepsy,Epilepsy (disorder),disorder,,L1-8A6,D004827,Active
+7200002,Alcoholism,,disorder,,6C40.2,D000437,Active

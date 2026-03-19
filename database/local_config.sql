@@ -1,2 +1,2 @@
-.mode table
+.mode column
 .headers on
