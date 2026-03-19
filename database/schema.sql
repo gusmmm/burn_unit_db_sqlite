@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS pathologies (
     semantic_tag TEXT,  -- Category type: disorder, finding, procedure, substance, etc.
     definition TEXT,  -- Clinical/technical description from SNOMED-CT
     icd11_code TEXT,  -- ICD-11 equivalent for interoperability
+    mesh_id TEXT,  -- MeSH ID for research linkage
     status TEXT CHECK (status IN ('Active', 'Inactive')) DEFAULT 'Active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
