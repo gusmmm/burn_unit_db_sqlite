@@ -1,5 +1,11 @@
-def main():
-    print("Hello from burn_unit_db_sqlite!")
+"""Application entrypoint for running the FastAPI backend."""
+
+import uvicorn
+
+
+def main() -> None:
+    """Start the FastAPI server."""
+    uvicorn.run("backend.app:app", host="127.0.0.1", port=8000, reload=False)
 
 
 if __name__ == "__main__":
