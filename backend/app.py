@@ -39,6 +39,15 @@ class PatientRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PatientPatch(BaseModel):
+    """Payload used for partial updates of a patient row."""
+
+    name: str | None = None
+    birth_date: str | None = None
+    gender: str | None = None
+    address: int | None = None
+
+
 def get_connection() -> sqlite3.Connection:
     """Return a SQLite connection configured to expose rows as dictionaries."""
     connection = sqlite3.connect(DATABASE_PATH)
@@ -89,6 +98,13 @@ def read_root() -> dict[str, str]:
 def get_patients() -> list[dict[str, Any]]:
     """Return every patient row from the patients table."""
     return fetch_all_rows("patients")
+
+
+@app.get("/patients/{patient_id}", tags=["patients"], response_model=PatientRead)
+def get_patient(patient_id: int) -> dict[str, Any]:
+    """Return one patient row by id."""
+    with get_connection() as connection:
+        return get_patient_or_404(connection, patient_id)
 
 
 @app.post("/patients", tags=["patients"], response_model=PatientRead, status_code=201)
@@ -145,6 +161,46 @@ def update_patient(patient_id: int, payload: PatientWrite) -> dict[str, Any]:
                     patient_id,
                 ),
             )
+            row = connection.execute(
+                "SELECT * FROM patients WHERE id = ?",
+                (patient_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid patient data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Patient updated but could not be read back")
+    return dict(row)
+
+
+@app.patch("/patients/{patient_id}", tags=["patients"], response_model=PatientRead)
+def patch_patient(patient_id: int, payload: PatientPatch) -> dict[str, Any]:
+    """Partially update patient fields by id and return the updated record."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {"name", "birth_date", "gender", "address"}
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.append(patient_id)
+
+    query = f"UPDATE patients SET {', '.join(assignments)} WHERE id = ?"
+
+    try:
+        with get_connection() as connection:
+            get_patient_or_404(connection, patient_id)
+            connection.execute(query, values)
             row = connection.execute(
                 "SELECT * FROM patients WHERE id = ?",
                 (patient_id,),
