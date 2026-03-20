@@ -210,6 +210,15 @@ def load_patient_pathologies() -> list[dict[str, Any]]:
 
 
 @st.cache_data(ttl=5)
+def load_patient_medications() -> list[dict[str, Any]]:
+    """Load all patient-medication association rows from API."""
+    status, data = request_json("GET", "/patient-medications")
+    if status != 200:
+        raise RuntimeError(f"Could not load patient-medications: {data}")
+    return data
+
+
+@st.cache_data(ttl=5)
 def load_medications() -> list[dict[str, Any]]:
     """Load all medications from API."""
     status, data = request_json("GET", "/medications")
@@ -293,6 +302,7 @@ def refresh_data() -> None:
     load_addresses.clear()
     load_pathologies.clear()
     load_patient_pathologies.clear()
+    load_patient_medications.clear()
     load_medications.clear()
     st.rerun()
 
@@ -1005,6 +1015,15 @@ def patient_pathology_row_label(row: dict[str, Any], pathologies_by_id: dict[int
     return f"pathology {pathology_id} ({pathology_name}) | severity={severity} | diagnosed={diagnosed_date}"
 
 
+def patient_medication_row_label(row: dict[str, Any], medications_by_id: dict[int, dict[str, Any]]) -> str:
+    """Build readable medication association label for patient overview selectors."""
+    medication_id = row.get("medication_id")
+    medication_name = medications_by_id.get(medication_id, {}).get("name", "Unknown medication")
+    dosage = row.get("dosage") or "-"
+    prescribed_date = row.get("prescribed_date") or "-"
+    return f"medication {medication_id} ({medication_name}) | dosage={dosage} | prescribed={prescribed_date}"
+
+
 def render_patient_pathologies_section(
     selected_patient: dict[str, Any],
     pathologies: list[dict[str, Any]],
@@ -1175,6 +1194,176 @@ def render_patient_pathologies_section(
     card_close()
 
 
+def render_patient_medications_section(
+    selected_patient: dict[str, Any],
+    medications: list[dict[str, Any]],
+    associations: list[dict[str, Any]],
+) -> None:
+    """Render CRED controls for patient_medications scoped to one selected patient."""
+    patient_id = selected_patient["id"]
+    medications_by_id = {int(item["id"]): item for item in medications if item.get("id") is not None}
+    rows_for_patient = [row for row in associations if row.get("patient_id") == patient_id]
+
+    card_open()
+    section_title("Patient Medications")
+
+    st.markdown(
+        f"<span class='ui-badge'>Associations for patient {patient_id}: {len(rows_for_patient)}</span>",
+        unsafe_allow_html=True,
+    )
+
+    if rows_for_patient:
+        st.dataframe(rows_for_patient, width="stretch", hide_index=True)
+    else:
+        st.info("This patient has no associated medications yet.")
+
+    op_tabs = st.tabs(["Create", "Read", "Edit", "Delete"])
+
+    with op_tabs[0]:
+        if not medications:
+            st.info("No medications available. Create medications first in the Medications tab.")
+        else:
+            medication_options = sorted(medications, key=lambda m: int(m.get("id", 0)))
+            with st.form("patient_overview_med_assoc_create_form"):
+                medication = st.selectbox(
+                    "Medication",
+                    options=medication_options,
+                    format_func=medication_label,
+                )
+                prescribed_date = st.text_input("Prescribed date (YYYY-MM-DD)", placeholder="Optional")
+                dosage = st.text_input("Dosage", placeholder="Optional")
+                submitted = st.form_submit_button("Create association", width="stretch")
+
+                if submitted:
+                    prescribed_date_value = optional_text(prescribed_date)
+                    if prescribed_date_value:
+                        try:
+                            prescribed_date_value = parse_birth_date_input(prescribed_date_value)
+                        except ValueError:
+                            st.error("Prescribed date must use format YYYY-MM-DD.")
+                            return
+
+                    payload = {
+                        "patient_id": patient_id,
+                        "medication_id": int(medication["id"]),
+                        "prescribed_date": prescribed_date_value,
+                        "dosage": optional_text(dosage),
+                    }
+                    status_code, data = request_json("POST", "/patient-medications", payload)
+                    show_api_result(status_code, data)
+                    if 200 <= status_code < 300:
+                        refresh_data()
+
+    with op_tabs[1]:
+        if not rows_for_patient:
+            st.info("No association rows to read for this patient.")
+        else:
+            selected_row = st.selectbox(
+                "Association row",
+                options=rows_for_patient,
+                format_func=lambda row: patient_medication_row_label(row, medications_by_id),
+                key="patient_overview_med_assoc_read_select",
+            )
+            if st.button("Show association details", width="stretch", key="patient_overview_med_assoc_read_btn"):
+                st.json(selected_row)
+
+    with op_tabs[2]:
+        if not rows_for_patient:
+            st.info("No association rows to edit for this patient.")
+        else:
+            selected_row = st.selectbox(
+                "Association row to edit",
+                options=rows_for_patient,
+                format_func=lambda row: patient_medication_row_label(row, medications_by_id),
+                key="patient_overview_med_assoc_patch_select",
+            )
+
+            medication_options = sorted(medications, key=lambda m: int(m.get("id", 0))) if medications else []
+
+            with st.form("patient_overview_med_assoc_patch_form"):
+                use_medication = st.checkbox("Update medication", key="patient_overview_med_assoc_patch_use_medication")
+                if medication_options:
+                    patch_medication = st.selectbox(
+                        "Medication",
+                        options=medication_options,
+                        format_func=medication_label,
+                        index=find_index_by_key(medication_options, "id", selected_row.get("medication_id")),
+                    )
+                else:
+                    patch_medication = None
+                    st.info("No medications available to switch to.")
+
+                use_prescribed_date = st.checkbox(
+                    "Update prescribed date",
+                    key="patient_overview_med_assoc_patch_use_prescribed_date",
+                )
+                patch_prescribed_date = st.text_input(
+                    "Prescribed date (YYYY-MM-DD)",
+                    value=str(selected_row.get("prescribed_date") or ""),
+                )
+
+                use_dosage = st.checkbox("Update dosage", key="patient_overview_med_assoc_patch_use_dosage")
+                patch_dosage = st.text_input("Dosage", value=str(selected_row.get("dosage") or ""))
+
+                submitted = st.form_submit_button("Apply edit", width="stretch")
+
+                if submitted:
+                    payload: dict[str, Any] = {}
+                    if use_medication and patch_medication is not None:
+                        payload["medication_id"] = int(patch_medication["id"])
+                    if use_prescribed_date:
+                        prescribed_date_value = optional_text(patch_prescribed_date)
+                        if prescribed_date_value:
+                            try:
+                                prescribed_date_value = parse_birth_date_input(prescribed_date_value)
+                            except ValueError:
+                                st.error("Prescribed date must use format YYYY-MM-DD.")
+                                return
+                        payload["prescribed_date"] = prescribed_date_value
+                    if use_dosage:
+                        payload["dosage"] = optional_text(patch_dosage)
+
+                    status_code, data = request_json(
+                        "PATCH",
+                        f"/patient-medications/{patient_id}/{selected_row['medication_id']}",
+                        payload,
+                    )
+                    show_api_result(status_code, data)
+                    if 200 <= status_code < 300:
+                        refresh_data()
+
+    with op_tabs[3]:
+        if not rows_for_patient:
+            st.info("No association rows to delete for this patient.")
+        else:
+            selected_row = st.selectbox(
+                "Association row to delete",
+                options=rows_for_patient,
+                format_func=lambda row: patient_medication_row_label(row, medications_by_id),
+                key="patient_overview_med_assoc_delete_select",
+            )
+            confirm_delete = st.checkbox(
+                "I understand this action cannot be undone",
+                key="patient_overview_med_assoc_delete_confirm",
+            )
+            if st.button(
+                "Delete association",
+                type="primary",
+                disabled=not confirm_delete,
+                width="stretch",
+                key="patient_overview_med_assoc_delete_btn",
+            ):
+                status_code, data = request_json(
+                    "DELETE",
+                    f"/patient-medications/{patient_id}/{selected_row['medication_id']}",
+                )
+                show_api_result(status_code, data)
+                if 200 <= status_code < 300:
+                    refresh_data()
+
+    card_close()
+
+
 def render_future_associations_placeholder() -> None:
     """Reserve space for future patient-linked association tables."""
     card_open(compact=True)
@@ -1194,7 +1383,9 @@ def patient_overview_tab() -> None:
     try:
         patients = load_patients()
         pathologies = load_pathologies()
-        associations = load_patient_pathologies()
+        pathology_associations = load_patient_pathologies()
+        medications = load_medications()
+        medication_associations = load_patient_medications()
     except RuntimeError as exc:
         st.error(str(exc))
         return
@@ -1215,7 +1406,12 @@ def patient_overview_tab() -> None:
     st.json(selected_patient)
     card_close()
 
-    render_patient_pathologies_section(selected_patient, pathologies, associations)
+    cols = st.columns(2)
+    with cols[0]:
+        render_patient_pathologies_section(selected_patient, pathologies, pathology_associations)
+    with cols[1]:
+        render_patient_medications_section(selected_patient, medications, medication_associations)
+
     render_future_associations_placeholder()
 
 

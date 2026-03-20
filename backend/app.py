@@ -178,6 +178,35 @@ class MedicationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PatientMedicationCreate(BaseModel):
+    """Payload used for creating a patient-medication association row."""
+
+    patient_id: int
+    medication_id: int
+    prescribed_date: str | None = None
+    dosage: str | None = None
+
+
+class PatientMedicationPatch(BaseModel):
+    """Payload used for partially updating a patient-medication association row."""
+
+    patient_id: int | None = None
+    medication_id: int | None = None
+    prescribed_date: str | None = None
+    dosage: str | None = None
+
+
+class PatientMedicationRead(BaseModel):
+    """Response model representing a patient-medication association row."""
+
+    patient_id: int
+    medication_id: int
+    prescribed_date: str | None = None
+    dosage: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 def get_connection() -> sqlite3.Connection:
     """Return a SQLite connection configured to expose rows as dictionaries."""
     connection = sqlite3.connect(DATABASE_PATH)
@@ -265,6 +294,25 @@ def get_medication_or_404(connection: sqlite3.Connection, medication_id: int) ->
     return dict(row)
 
 
+def get_patient_medication_or_404(
+    connection: sqlite3.Connection,
+    patient_id: int,
+    medication_id: int,
+) -> dict[str, Any]:
+    """Fetch a patient-medication association row by composite key or raise 404 if not found."""
+    row = connection.execute(
+        """
+        SELECT *
+        FROM patient_medications
+        WHERE patient_id = ? AND medication_id = ?
+        """,
+        (patient_id, medication_id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Patient-medication association not found")
+    return dict(row)
+
+
 def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
     """Fetch all rows from the provided table name in ascending id order when available."""
     query = f"SELECT * FROM {table_name}"
@@ -288,7 +336,9 @@ def read_root() -> dict[str, str]:
     """Return a small index of available endpoints."""
     return {
         "message": "Burn Unit Database API is running.",
-        "endpoints": "/patients, /addresses, /pathologies, /patient-pathologies, /medications",
+        "endpoints": (
+            "/patients, /addresses, /pathologies, /patient-pathologies, /medications, /patient-medications"
+        ),
     }
 
 
@@ -875,3 +925,116 @@ def delete_patient_pathology_association(patient_id: int, pathology_id: int) -> 
         )
 
     return {"message": f"Association ({patient_id}, {pathology_id}) deleted"}
+
+
+@app.get("/patient-medications", tags=["patient_medications"])
+def get_patient_medications() -> list[dict[str, Any]]:
+    """Return every row from the patient_medications join table."""
+    return fetch_all_rows("patient_medications")
+
+
+@app.post(
+    "/patient-medications",
+    tags=["patient_medications"],
+    response_model=PatientMedicationRead,
+    status_code=201,
+)
+def create_patient_medication_association(payload: PatientMedicationCreate) -> dict[str, Any]:
+    """Create a patient-medication association and return the inserted row."""
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO patient_medications (patient_id, medication_id, prescribed_date, dosage)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    payload.patient_id,
+                    payload.medication_id,
+                    payload.prescribed_date,
+                    payload.dosage,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT *
+                FROM patient_medications
+                WHERE patient_id = ? AND medication_id = ?
+                """,
+                (payload.patient_id, payload.medication_id),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid patient-medication data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Association created but could not be read back")
+    return dict(row)
+
+
+@app.patch(
+    "/patient-medications/{patient_id}/{medication_id}",
+    tags=["patient_medications"],
+    response_model=PatientMedicationRead,
+)
+def patch_patient_medication_association(
+    patient_id: int,
+    medication_id: int,
+    payload: PatientMedicationPatch,
+) -> dict[str, Any]:
+    """Partially update a patient-medication association row by composite key."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {"patient_id", "medication_id", "prescribed_date", "dosage"}
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    values.extend([patient_id, medication_id])
+    query = (
+        f"UPDATE patient_medications SET {', '.join(assignments)} "
+        "WHERE patient_id = ? AND medication_id = ?"
+    )
+
+    new_patient_id = updates.get("patient_id", patient_id)
+    new_medication_id = updates.get("medication_id", medication_id)
+
+    try:
+        with get_connection() as connection:
+            get_patient_medication_or_404(connection, patient_id, medication_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                """
+                SELECT *
+                FROM patient_medications
+                WHERE patient_id = ? AND medication_id = ?
+                """,
+                (new_patient_id, new_medication_id),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid patient-medication data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Association updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/patient-medications/{patient_id}/{medication_id}", tags=["patient_medications"])
+def delete_patient_medication_association(patient_id: int, medication_id: int) -> dict[str, str]:
+    """Delete one patient-medication association row by composite key."""
+    with get_connection() as connection:
+        get_patient_medication_or_404(connection, patient_id, medication_id)
+        connection.execute(
+            "DELETE FROM patient_medications WHERE patient_id = ? AND medication_id = ?",
+            (patient_id, medication_id),
+        )
+
+    return {"message": f"Patient-medication association ({patient_id}, {medication_id}) deleted"}
