@@ -10,6 +10,7 @@ import requests
 import streamlit as st
 
 ALLOWED_GENDERS = ["M", "F", "other"]
+ALLOWED_PATHOLOGY_STATUSES = ["Active", "Inactive"]
 API_BASE_URL = os.getenv("BURN_API_URL", "http://127.0.0.1:8000").rstrip("/")
 
 # Centralized visual tokens to simplify theme maintenance.
@@ -190,6 +191,15 @@ def load_addresses() -> list[dict[str, Any]]:
     return data
 
 
+@st.cache_data(ttl=5)
+def load_pathologies() -> list[dict[str, Any]]:
+    """Load all pathologies from API."""
+    status, data = request_json("GET", "/pathologies")
+    if status != 200:
+        raise RuntimeError(f"Could not load pathologies: {data}")
+    return data
+
+
 def birth_date_text(value: Any) -> str:
     """Return birth date as ISO text for text-input fields."""
     if not value:
@@ -232,6 +242,17 @@ def address_option_index(addr_opts: list[dict[str, Any]], address_id: int | None
     return 0
 
 
+def pathology_label(pathology: dict[str, Any]) -> str:
+    """Build human-readable pathology label for selectors."""
+    return f"{pathology.get('id')} - {pathology.get('name')}"
+
+
+def optional_text(value: str) -> str | None:
+    """Normalize optional string input by mapping empty values to None."""
+    clean = value.strip()
+    return clean if clean else None
+
+
 def show_api_result(status: int, data: Any) -> None:
     """Display API request result in a concise way."""
     if 200 <= status < 300:
@@ -246,6 +267,7 @@ def refresh_data() -> None:
     """Clear cached API data and rerun for immediate UI update."""
     load_patients.clear()
     load_addresses.clear()
+    load_pathologies.clear()
     st.rerun()
 
 
@@ -493,6 +515,260 @@ def patients_tab() -> None:
     render_crud_workspace(patients, address_options(addresses))
 
 
+def render_pathologies_overview(pathologies: list[dict[str, Any]]) -> None:
+    """Render compact overview and pathology list."""
+    cols = st.columns([2, 1])
+    with cols[0]:
+        st.markdown(f"<span class='ui-badge'>Pathologies: {len(pathologies)}</span>", unsafe_allow_html=True)
+        st.markdown("<span class='ui-badge'>Operations: GET, POST, PUT, PATCH, DELETE</span>", unsafe_allow_html=True)
+    with cols[1]:
+        if st.button("Refresh now", width="stretch", key="refresh_pathologies"):
+            refresh_data()
+
+    card_open(compact=True)
+    section_title("Current Pathologies")
+    if pathologies:
+        st.dataframe(pathologies, width="stretch", hide_index=True)
+    else:
+        st.info("No pathologies available yet.")
+    card_close()
+
+
+def render_pathology_create_tab() -> None:
+    """Render create pathology operation."""
+    with st.form("create_pathology_form"):
+        pathology_id = st.number_input("Pathology ID", min_value=1, step=1, format="%d")
+        name = st.text_input("Name", placeholder="Pathology preferred term")
+        fsn = st.text_input("FSN", placeholder="Fully specified name")
+        semantic_tag = st.text_input("Semantic tag", placeholder="e.g. disorder")
+        definition = st.text_area("Definition", placeholder="Clinical description")
+        icd11_code = st.text_input("ICD-11 code", placeholder="Optional ICD-11 code")
+        mesh_id = st.text_input("MeSH ID", placeholder="Optional MeSH id")
+        status = st.selectbox("Status", options=ALLOWED_PATHOLOGY_STATUSES)
+        submitted = st.form_submit_button("Create pathology", width="stretch")
+
+        if submitted:
+            payload = {
+                "id": int(pathology_id),
+                "name": name.strip(),
+                "fsn": optional_text(fsn),
+                "semantic_tag": optional_text(semantic_tag),
+                "definition": optional_text(definition),
+                "icd11_code": optional_text(icd11_code),
+                "mesh_id": optional_text(mesh_id),
+                "status": status,
+            }
+            status_code, data = request_json("POST", "/pathologies", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_pathology_read_tab(pathologies: list[dict[str, Any]]) -> None:
+    """Render read single pathology operation."""
+    if not pathologies:
+        st.info("Create at least one pathology to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Select pathology",
+        options=pathologies,
+        format_func=pathology_label,
+        key="read_pathology_select",
+    )
+    if st.button("Fetch pathology", width="stretch"):
+        status_code, data = request_json("GET", f"/pathologies/{selected['id']}")
+        show_api_result(status_code, data)
+
+
+def render_pathology_put_tab(pathologies: list[dict[str, Any]]) -> None:
+    """Render full replace pathology operation."""
+    if not pathologies:
+        st.info("Create at least one pathology to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Pathology to replace",
+        options=pathologies,
+        format_func=pathology_label,
+        key="put_pathology_select",
+    )
+
+    with st.form("put_pathology_form"):
+        name = st.text_input("Name", value=str(selected.get("name", "")))
+        fsn = st.text_input("FSN", value=str(selected.get("fsn") or ""))
+        semantic_tag = st.text_input("Semantic tag", value=str(selected.get("semantic_tag") or ""))
+        definition = st.text_area("Definition", value=str(selected.get("definition") or ""))
+        icd11_code = st.text_input("ICD-11 code", value=str(selected.get("icd11_code") or ""))
+        mesh_id = st.text_input("MeSH ID", value=str(selected.get("mesh_id") or ""))
+        current_status = selected.get("status")
+        status = st.selectbox(
+            "Status",
+            options=ALLOWED_PATHOLOGY_STATUSES,
+            index=ALLOWED_PATHOLOGY_STATUSES.index(current_status)
+            if current_status in ALLOWED_PATHOLOGY_STATUSES
+            else 0,
+        )
+        submitted = st.form_submit_button("Replace pathology", width="stretch")
+
+        if submitted:
+            payload = {
+                "name": name.strip(),
+                "fsn": optional_text(fsn),
+                "semantic_tag": optional_text(semantic_tag),
+                "definition": optional_text(definition),
+                "icd11_code": optional_text(icd11_code),
+                "mesh_id": optional_text(mesh_id),
+                "status": status,
+            }
+            status_code, data = request_json("PUT", f"/pathologies/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_pathology_patch_tab(pathologies: list[dict[str, Any]]) -> None:
+    """Render partial update pathology operation."""
+    if not pathologies:
+        st.info("Create at least one pathology to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Pathology to patch",
+        options=pathologies,
+        format_func=pathology_label,
+        key="patch_pathology_select",
+    )
+
+    with st.form("patch_pathology_form"):
+        use_name = st.checkbox("Update name", key="patch_pathology_use_name")
+        patch_name = st.text_input("Name", value=str(selected.get("name", "")), key="patch_pathology_name")
+
+        use_fsn = st.checkbox("Update FSN", key="patch_pathology_use_fsn")
+        patch_fsn = st.text_input("FSN", value=str(selected.get("fsn") or ""), key="patch_pathology_fsn")
+
+        use_semantic_tag = st.checkbox("Update semantic tag", key="patch_pathology_use_semantic_tag")
+        patch_semantic_tag = st.text_input(
+            "Semantic tag",
+            value=str(selected.get("semantic_tag") or ""),
+            key="patch_pathology_semantic_tag",
+        )
+
+        use_definition = st.checkbox("Update definition", key="patch_pathology_use_definition")
+        patch_definition = st.text_area(
+            "Definition",
+            value=str(selected.get("definition") or ""),
+            key="patch_pathology_definition",
+        )
+
+        use_icd11 = st.checkbox("Update ICD-11 code", key="patch_pathology_use_icd11")
+        patch_icd11_code = st.text_input(
+            "ICD-11 code",
+            value=str(selected.get("icd11_code") or ""),
+            key="patch_pathology_icd11_code",
+        )
+
+        use_mesh = st.checkbox("Update MeSH ID", key="patch_pathology_use_mesh")
+        patch_mesh_id = st.text_input(
+            "MeSH ID",
+            value=str(selected.get("mesh_id") or ""),
+            key="patch_pathology_mesh_id",
+        )
+
+        use_status = st.checkbox("Update status", key="patch_pathology_use_status")
+        current_status = selected.get("status")
+        patch_status = st.selectbox(
+            "Status",
+            options=ALLOWED_PATHOLOGY_STATUSES,
+            index=ALLOWED_PATHOLOGY_STATUSES.index(current_status)
+            if current_status in ALLOWED_PATHOLOGY_STATUSES
+            else 0,
+            key="patch_pathology_status",
+        )
+
+        submitted = st.form_submit_button("Apply patch", width="stretch")
+
+        if submitted:
+            payload: dict[str, Any] = {}
+            if use_name:
+                payload["name"] = patch_name.strip()
+            if use_fsn:
+                payload["fsn"] = optional_text(patch_fsn)
+            if use_semantic_tag:
+                payload["semantic_tag"] = optional_text(patch_semantic_tag)
+            if use_definition:
+                payload["definition"] = optional_text(patch_definition)
+            if use_icd11:
+                payload["icd11_code"] = optional_text(patch_icd11_code)
+            if use_mesh:
+                payload["mesh_id"] = optional_text(patch_mesh_id)
+            if use_status:
+                payload["status"] = patch_status
+
+            status_code, data = request_json("PATCH", f"/pathologies/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_pathology_delete_tab(pathologies: list[dict[str, Any]]) -> None:
+    """Render delete pathology operation."""
+    if not pathologies:
+        st.info("Create at least one pathology to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Pathology to delete",
+        options=pathologies,
+        format_func=pathology_label,
+        key="delete_pathology_select",
+    )
+    confirm_delete = st.checkbox(
+        "I understand this action cannot be undone",
+        key="delete_pathology_confirm",
+    )
+    if st.button("Delete pathology", type="primary", disabled=not confirm_delete, width="stretch"):
+        status_code, data = request_json("DELETE", f"/pathologies/{selected['id']}")
+        show_api_result(status_code, data)
+        if 200 <= status_code < 300:
+            refresh_data()
+
+
+def render_pathology_crud_workspace(pathologies: list[dict[str, Any]]) -> None:
+    """Render pathology CRUD operations in compact tabs."""
+    card_open()
+    section_title("Pathologies CRUD Workspace")
+    op_tabs = st.tabs(["Create (POST)", "Read One (GET)", "Replace (PUT)", "Patch (PATCH)", "Delete (DELETE)"])
+
+    with op_tabs[0]:
+        render_pathology_create_tab()
+    with op_tabs[1]:
+        render_pathology_read_tab(pathologies)
+    with op_tabs[2]:
+        render_pathology_put_tab(pathologies)
+    with op_tabs[3]:
+        render_pathology_patch_tab(pathologies)
+    with op_tabs[4]:
+        render_pathology_delete_tab(pathologies)
+
+    card_close()
+
+
+def pathologies_tab() -> None:
+    """Render pathologies management UI."""
+    st.subheader("Pathologies Management")
+    st.caption(f"Backend API: {API_BASE_URL}")
+
+    try:
+        pathologies = load_pathologies()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+
+    render_pathologies_overview(pathologies)
+    render_pathology_crud_workspace(pathologies)
+
+
 def main() -> None:
     """Run the Streamlit application."""
     st.set_page_config(page_title="Burn Unit UI", layout="wide")
@@ -501,9 +777,11 @@ def main() -> None:
     st.title("Burn Unit Database")
     st.caption("Unified light theme with compact CRUD workflow")
 
-    tabs = st.tabs(["Patients"])
+    tabs = st.tabs(["Patients", "Pathologies"])
     with tabs[0]:
         patients_tab()
+    with tabs[1]:
+        pathologies_tab()
 
 
 if __name__ == "__main__":
