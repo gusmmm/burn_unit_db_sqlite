@@ -25,6 +25,16 @@ class PatientWrite(BaseModel):
     address: int | None = None
 
 
+class PatientCreate(BaseModel):
+    """Payload used for creating a patient row with explicit id."""
+
+    id: int
+    name: str
+    birth_date: str | None = None
+    gender: str | None = None
+    address: int | None = None
+
+
 class PatientRead(BaseModel):
     """Response model representing a patient row."""
 
@@ -108,26 +118,26 @@ def get_patient(patient_id: int) -> dict[str, Any]:
 
 
 @app.post("/patients", tags=["patients"], response_model=PatientRead, status_code=201)
-def create_patient(payload: PatientWrite) -> dict[str, Any]:
+def create_patient(payload: PatientCreate) -> dict[str, Any]:
     """Create a new patient row and return the inserted record."""
     try:
         with get_connection() as connection:
-            cursor = connection.execute(
+            connection.execute(
                 """
-                INSERT INTO patients (name, birth_date, gender, address)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO patients (id, name, birth_date, gender, address)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
+                    payload.id,
                     payload.name,
                     payload.birth_date,
                     payload.gender,
                     payload.address,
                 ),
             )
-            patient_id = cursor.lastrowid
             row = connection.execute(
                 "SELECT * FROM patients WHERE id = ?",
-                (patient_id,),
+                (payload.id,),
             ).fetchone()
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid patient data: {exc}") from exc

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 import requests
@@ -190,14 +190,20 @@ def load_addresses() -> list[dict[str, Any]]:
     return data
 
 
-def parse_birth_date(value: Any) -> date:
-    """Convert backend date string into date widget value."""
+def birth_date_text(value: Any) -> str:
+    """Return birth date as ISO text for text-input fields."""
     if not value:
-        return date.today()
-    try:
-        return datetime.strptime(str(value), "%Y-%m-%d").date()
-    except ValueError:
-        return date.today()
+        return ""
+    return str(value)
+
+
+def parse_birth_date_input(value: str) -> str | None:
+    """Validate YYYY-MM-DD input and return canonical ISO date text or None."""
+    clean = value.strip()
+    if not clean:
+        return None
+    parsed = datetime.strptime(clean, "%Y-%m-%d").date()
+    return parsed.isoformat()
 
 
 def address_options(addresses: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -266,8 +272,9 @@ def render_overview(patients: list[dict[str, Any]], addresses: list[dict[str, An
 def render_create_tab(addr_opts: list[dict[str, Any]]) -> None:
     """Render create patient operation."""
     with st.form("create_patient_form"):
+        patient_id = st.number_input("Patient ID", min_value=1, step=1, format="%d")
         name = st.text_input("Name", placeholder="Patient full name")
-        birth_date = st.date_input("Birth date")
+        birth_date = st.text_input("Birth date (YYYY-MM-DD)", placeholder="e.g. 1985-07-23")
         gender = st.selectbox("Gender", options=ALLOWED_GENDERS)
         address = st.selectbox(
             "Address (municipio)",
@@ -278,9 +285,16 @@ def render_create_tab(addr_opts: list[dict[str, Any]]) -> None:
         submitted = st.form_submit_button("Create patient", width="stretch")
 
         if submitted:
+            try:
+                birth_date_value = parse_birth_date_input(birth_date)
+            except ValueError:
+                st.error("Birth date must use format YYYY-MM-DD.")
+                return
+
             payload = {
+                "id": int(patient_id),
                 "name": name.strip(),
-                "birth_date": birth_date.isoformat(),
+                "birth_date": birth_date_value,
                 "gender": gender,
                 "address": address["id"],
             }
@@ -322,7 +336,10 @@ def render_put_tab(patients: list[dict[str, Any]], addr_opts: list[dict[str, Any
 
     with st.form("put_patient_form"):
         name = st.text_input("Name", value=str(selected.get("name", "")))
-        birth = st.date_input("Birth date", value=parse_birth_date(selected.get("birth_date")))
+        birth = st.text_input(
+            "Birth date (YYYY-MM-DD)",
+            value=birth_date_text(selected.get("birth_date")),
+        )
         gender = st.selectbox(
             "Gender",
             options=ALLOWED_GENDERS,
@@ -338,9 +355,15 @@ def render_put_tab(patients: list[dict[str, Any]], addr_opts: list[dict[str, Any
         submitted = st.form_submit_button("Replace patient", width="stretch")
 
         if submitted:
+            try:
+                birth_value = parse_birth_date_input(birth)
+            except ValueError:
+                st.error("Birth date must use format YYYY-MM-DD.")
+                return
+
             payload = {
                 "name": name.strip(),
-                "birth_date": birth.isoformat(),
+                "birth_date": birth_value,
                 "gender": gender,
                 "address": address["id"],
             }
@@ -368,9 +391,9 @@ def render_patch_tab(patients: list[dict[str, Any]], addr_opts: list[dict[str, A
         patch_name = st.text_input("Name", value=str(selected.get("name", "")))
 
         use_birth = st.checkbox("Update birth date")
-        patch_birth = st.date_input(
-            "Birth date",
-            value=parse_birth_date(selected.get("birth_date")),
+        patch_birth = st.text_input(
+            "Birth date (YYYY-MM-DD)",
+            value=birth_date_text(selected.get("birth_date")),
             key="patch_birth_date",
         )
 
@@ -398,7 +421,11 @@ def render_patch_tab(patients: list[dict[str, Any]], addr_opts: list[dict[str, A
             if use_name:
                 payload["name"] = patch_name.strip()
             if use_birth:
-                payload["birth_date"] = patch_birth.isoformat()
+                try:
+                    payload["birth_date"] = parse_birth_date_input(patch_birth)
+                except ValueError:
+                    st.error("Birth date must use format YYYY-MM-DD.")
+                    return
             if use_gender:
                 payload["gender"] = patch_gender
             if use_address:
