@@ -200,6 +200,15 @@ def load_pathologies() -> list[dict[str, Any]]:
     return data
 
 
+@st.cache_data(ttl=5)
+def load_patient_pathologies() -> list[dict[str, Any]]:
+    """Load all patient-pathology association rows from API."""
+    status, data = request_json("GET", "/patient-pathologies")
+    if status != 200:
+        raise RuntimeError(f"Could not load patient-pathologies: {data}")
+    return data
+
+
 def birth_date_text(value: Any) -> str:
     """Return birth date as ISO text for text-input fields."""
     if not value:
@@ -268,7 +277,16 @@ def refresh_data() -> None:
     load_patients.clear()
     load_addresses.clear()
     load_pathologies.clear()
+    load_patient_pathologies.clear()
     st.rerun()
+
+
+def find_index_by_key(rows: list[dict[str, Any]], key: str, value: Any) -> int:
+    """Resolve selected option index from a list of dictionaries and key/value."""
+    for idx, row in enumerate(rows):
+        if row.get(key) == value:
+            return idx
+    return 0
 
 
 def render_overview(patients: list[dict[str, Any]], addresses: list[dict[str, Any]]) -> None:
@@ -769,6 +787,229 @@ def pathologies_tab() -> None:
     render_pathology_crud_workspace(pathologies)
 
 
+def patient_pathology_row_label(row: dict[str, Any], pathologies_by_id: dict[int, dict[str, Any]]) -> str:
+    """Build readable association label for patient overview selectors."""
+    pathology_id = row.get("pathology_id")
+    pathology_name = pathologies_by_id.get(pathology_id, {}).get("name", "Unknown pathology")
+    severity = row.get("severity") or "-"
+    diagnosed_date = row.get("diagnosed_date") or "-"
+    return f"pathology {pathology_id} ({pathology_name}) | severity={severity} | diagnosed={diagnosed_date}"
+
+
+def render_patient_pathologies_section(
+    selected_patient: dict[str, Any],
+    pathologies: list[dict[str, Any]],
+    associations: list[dict[str, Any]],
+) -> None:
+    """Render CRED controls for patient_pathologies scoped to one selected patient."""
+    patient_id = selected_patient["id"]
+    pathologies_by_id = {int(item["id"]): item for item in pathologies if item.get("id") is not None}
+    rows_for_patient = [row for row in associations if row.get("patient_id") == patient_id]
+
+    card_open()
+    section_title("Patient Pathologies")
+
+    st.markdown(
+        f"<span class='ui-badge'>Associations for patient {patient_id}: {len(rows_for_patient)}</span>",
+        unsafe_allow_html=True,
+    )
+
+    if rows_for_patient:
+        st.dataframe(rows_for_patient, width="stretch", hide_index=True)
+    else:
+        st.info("This patient has no associated pathologies yet.")
+
+    op_tabs = st.tabs(["Create", "Read", "Edit", "Delete"])
+
+    with op_tabs[0]:
+        if not pathologies:
+            st.info("No pathologies available. Create pathologies first in the Pathologies tab.")
+        else:
+            pathology_options = sorted(pathologies, key=lambda p: int(p.get("id", 0)))
+            with st.form("patient_overview_assoc_create_form"):
+                pathology = st.selectbox(
+                    "Pathology",
+                    options=pathology_options,
+                    format_func=pathology_label,
+                )
+                diagnosed_date = st.text_input("Diagnosed date (YYYY-MM-DD)", placeholder="Optional")
+                severity = st.text_input("Severity", placeholder="Optional")
+                submitted = st.form_submit_button("Create association", width="stretch")
+
+                if submitted:
+                    diagnosed_date_value = optional_text(diagnosed_date)
+                    if diagnosed_date_value:
+                        try:
+                            diagnosed_date_value = parse_birth_date_input(diagnosed_date_value)
+                        except ValueError:
+                            st.error("Diagnosed date must use format YYYY-MM-DD.")
+                            return
+
+                    payload = {
+                        "patient_id": patient_id,
+                        "pathology_id": int(pathology["id"]),
+                        "diagnosed_date": diagnosed_date_value,
+                        "severity": optional_text(severity),
+                    }
+                    status_code, data = request_json("POST", "/patient-pathologies", payload)
+                    show_api_result(status_code, data)
+                    if 200 <= status_code < 300:
+                        refresh_data()
+
+    with op_tabs[1]:
+        if not rows_for_patient:
+            st.info("No association rows to read for this patient.")
+        else:
+            selected_row = st.selectbox(
+                "Association row",
+                options=rows_for_patient,
+                format_func=lambda row: patient_pathology_row_label(row, pathologies_by_id),
+                key="patient_overview_assoc_read_select",
+            )
+            if st.button("Show association details", width="stretch", key="patient_overview_assoc_read_btn"):
+                st.json(selected_row)
+
+    with op_tabs[2]:
+        if not rows_for_patient:
+            st.info("No association rows to edit for this patient.")
+        else:
+            selected_row = st.selectbox(
+                "Association row to edit",
+                options=rows_for_patient,
+                format_func=lambda row: patient_pathology_row_label(row, pathologies_by_id),
+                key="patient_overview_assoc_patch_select",
+            )
+
+            pathology_options = sorted(pathologies, key=lambda p: int(p.get("id", 0))) if pathologies else []
+
+            with st.form("patient_overview_assoc_patch_form"):
+                use_pathology = st.checkbox("Update pathology", key="patient_overview_assoc_patch_use_pathology")
+                if pathology_options:
+                    patch_pathology = st.selectbox(
+                        "Pathology",
+                        options=pathology_options,
+                        format_func=pathology_label,
+                        index=find_index_by_key(pathology_options, "id", selected_row.get("pathology_id")),
+                    )
+                else:
+                    patch_pathology = None
+                    st.info("No pathologies available to switch to.")
+
+                use_diagnosed_date = st.checkbox(
+                    "Update diagnosed date",
+                    key="patient_overview_assoc_patch_use_diagnosed_date",
+                )
+                patch_diagnosed_date = st.text_input(
+                    "Diagnosed date (YYYY-MM-DD)",
+                    value=str(selected_row.get("diagnosed_date") or ""),
+                )
+
+                use_severity = st.checkbox("Update severity", key="patient_overview_assoc_patch_use_severity")
+                patch_severity = st.text_input("Severity", value=str(selected_row.get("severity") or ""))
+
+                submitted = st.form_submit_button("Apply edit", width="stretch")
+
+                if submitted:
+                    payload: dict[str, Any] = {}
+                    if use_pathology and patch_pathology is not None:
+                        payload["pathology_id"] = int(patch_pathology["id"])
+                    if use_diagnosed_date:
+                        diagnosed_date_value = optional_text(patch_diagnosed_date)
+                        if diagnosed_date_value:
+                            try:
+                                diagnosed_date_value = parse_birth_date_input(diagnosed_date_value)
+                            except ValueError:
+                                st.error("Diagnosed date must use format YYYY-MM-DD.")
+                                return
+                        payload["diagnosed_date"] = diagnosed_date_value
+                    if use_severity:
+                        payload["severity"] = optional_text(patch_severity)
+
+                    status_code, data = request_json(
+                        "PATCH",
+                        f"/patient-pathologies/{patient_id}/{selected_row['pathology_id']}",
+                        payload,
+                    )
+                    show_api_result(status_code, data)
+                    if 200 <= status_code < 300:
+                        refresh_data()
+
+    with op_tabs[3]:
+        if not rows_for_patient:
+            st.info("No association rows to delete for this patient.")
+        else:
+            selected_row = st.selectbox(
+                "Association row to delete",
+                options=rows_for_patient,
+                format_func=lambda row: patient_pathology_row_label(row, pathologies_by_id),
+                key="patient_overview_assoc_delete_select",
+            )
+            confirm_delete = st.checkbox(
+                "I understand this action cannot be undone",
+                key="patient_overview_assoc_delete_confirm",
+            )
+            if st.button(
+                "Delete association",
+                type="primary",
+                disabled=not confirm_delete,
+                width="stretch",
+                key="patient_overview_assoc_delete_btn",
+            ):
+                status_code, data = request_json(
+                    "DELETE",
+                    f"/patient-pathologies/{patient_id}/{selected_row['pathology_id']}",
+                )
+                show_api_result(status_code, data)
+                if 200 <= status_code < 300:
+                    refresh_data()
+
+    card_close()
+
+
+def render_future_associations_placeholder() -> None:
+    """Reserve space for future patient-linked association tables."""
+    card_open(compact=True)
+    section_title("Future Association Modules")
+    st.info(
+        "This Patient Overview layout is prepared to add more patient-linked modules "
+        "(e.g., medications, surgeries) while keeping one selected patient context."
+    )
+    card_close()
+
+
+def patient_overview_tab() -> None:
+    """Render patient-centric overview with association controls."""
+    st.subheader("Patient Overview")
+    st.caption(f"Backend API: {API_BASE_URL}")
+
+    try:
+        patients = load_patients()
+        pathologies = load_pathologies()
+        associations = load_patient_pathologies()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+
+    if not patients:
+        st.info("No patients found. Create patients first in the Patients tab.")
+        return
+
+    selected_patient = st.selectbox(
+        "Select patient",
+        options=patients,
+        format_func=patient_label,
+        key="patient_overview_patient_select",
+    )
+
+    card_open(compact=True)
+    section_title("Selected Patient")
+    st.json(selected_patient)
+    card_close()
+
+    render_patient_pathologies_section(selected_patient, pathologies, associations)
+    render_future_associations_placeholder()
+
+
 def main() -> None:
     """Run the Streamlit application."""
     st.set_page_config(page_title="Burn Unit UI", layout="wide")
@@ -777,11 +1018,13 @@ def main() -> None:
     st.title("Burn Unit Database")
     st.caption("Unified light theme with compact CRUD workflow")
 
-    tabs = st.tabs(["Patients", "Pathologies"])
+    tabs = st.tabs(["Patients", "Pathologies", "Patient Overview"])
     with tabs[0]:
         patients_tab()
     with tabs[1]:
         pathologies_tab()
+    with tabs[2]:
+        patient_overview_tab()
 
 
 if __name__ == "__main__":
