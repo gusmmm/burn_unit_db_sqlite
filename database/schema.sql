@@ -47,3 +47,22 @@ CREATE TABLE IF NOT EXISTS patient_pathologies (
     FOREIGN KEY (patient_id) REFERENCES patients(id),
     FOREIGN KEY (pathology_id) REFERENCES pathologies(id)
 );
+
+CREATE TABLE IF NOT EXISTS medications (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    ATC_code TEXT UNIQUE, -- Unique ATC code for medication classification
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS patient_medications (
+    patient_id INTEGER NOT NULL,
+    medication_id INTEGER NOT NULL,
+    prescribed_date DATE,
+    dosage TEXT,  -- e.g., "500 mg twice daily"
+    PRIMARY KEY (patient_id, medication_id),
+    FOREIGN KEY (patient_id) REFERENCES patients(id),
+    FOREIGN KEY (medication_id) REFERENCES medications(id)
+);

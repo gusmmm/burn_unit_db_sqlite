@@ -209,6 +209,15 @@ def load_patient_pathologies() -> list[dict[str, Any]]:
     return data
 
 
+@st.cache_data(ttl=5)
+def load_medications() -> list[dict[str, Any]]:
+    """Load all medications from API."""
+    status, data = request_json("GET", "/medications")
+    if status != 200:
+        raise RuntimeError(f"Could not load medications: {data}")
+    return data
+
+
 def birth_date_text(value: Any) -> str:
     """Return birth date as ISO text for text-input fields."""
     if not value:
@@ -256,6 +265,12 @@ def pathology_label(pathology: dict[str, Any]) -> str:
     return f"{pathology.get('id')} - {pathology.get('name')}"
 
 
+def medication_label(medication: dict[str, Any]) -> str:
+    """Build human-readable medication label for selectors."""
+    atc_code = medication.get("atc_code") or "-"
+    return f"{medication.get('id')} - {medication.get('name')} (ATC: {atc_code})"
+
+
 def optional_text(value: str) -> str | None:
     """Normalize optional string input by mapping empty values to None."""
     clean = value.strip()
@@ -278,6 +293,7 @@ def refresh_data() -> None:
     load_addresses.clear()
     load_pathologies.clear()
     load_patient_pathologies.clear()
+    load_medications.clear()
     st.rerun()
 
 
@@ -787,6 +803,199 @@ def pathologies_tab() -> None:
     render_pathology_crud_workspace(pathologies)
 
 
+def render_medications_overview(medications: list[dict[str, Any]]) -> None:
+    """Render compact overview and medication list."""
+    cols = st.columns([2, 1])
+    with cols[0]:
+        st.markdown(f"<span class='ui-badge'>Medications: {len(medications)}</span>", unsafe_allow_html=True)
+        st.markdown("<span class='ui-badge'>Operations: GET, POST, PUT, PATCH, DELETE</span>", unsafe_allow_html=True)
+    with cols[1]:
+        if st.button("Refresh now", width="stretch", key="refresh_medications"):
+            refresh_data()
+
+    card_open(compact=True)
+    section_title("Current Medications")
+    if medications:
+        st.dataframe(medications, width="stretch", hide_index=True)
+    else:
+        st.info("No medications available yet.")
+    card_close()
+
+
+def render_medication_create_tab() -> None:
+    """Render create medication operation."""
+    with st.form("create_medication_form"):
+        name = st.text_input("Name", placeholder="Medication name")
+        atc_code = st.text_input("ATC code", placeholder="Unique ATC code")
+        description = st.text_area("Description", placeholder="Optional description")
+        submitted = st.form_submit_button("Create medication", width="stretch")
+
+        if submitted:
+            payload = {
+                "name": name.strip(),
+                "atc_code": optional_text(atc_code),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("POST", "/medications", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_medication_read_tab(medications: list[dict[str, Any]]) -> None:
+    """Render read single medication operation."""
+    if not medications:
+        st.info("Create at least one medication to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Select medication",
+        options=medications,
+        format_func=medication_label,
+        key="read_medication_select",
+    )
+    if st.button("Fetch medication", width="stretch"):
+        status_code, data = request_json("GET", f"/medications/{selected['id']}")
+        show_api_result(status_code, data)
+
+
+def render_medication_put_tab(medications: list[dict[str, Any]]) -> None:
+    """Render full replace medication operation."""
+    if not medications:
+        st.info("Create at least one medication to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Medication to replace",
+        options=medications,
+        format_func=medication_label,
+        key="put_medication_select",
+    )
+
+    with st.form("put_medication_form"):
+        name = st.text_input("Name", value=str(selected.get("name", "")))
+        atc_code = st.text_input("ATC code", value=str(selected.get("atc_code") or ""))
+        description = st.text_area("Description", value=str(selected.get("description") or ""))
+        submitted = st.form_submit_button("Replace medication", width="stretch")
+
+        if submitted:
+            payload = {
+                "name": name.strip(),
+                "atc_code": optional_text(atc_code),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("PUT", f"/medications/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_medication_patch_tab(medications: list[dict[str, Any]]) -> None:
+    """Render partial update medication operation."""
+    if not medications:
+        st.info("Create at least one medication to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Medication to patch",
+        options=medications,
+        format_func=medication_label,
+        key="patch_medication_select",
+    )
+
+    with st.form("patch_medication_form"):
+        use_name = st.checkbox("Update name", key="patch_medication_use_name")
+        patch_name = st.text_input("Name", value=str(selected.get("name", "")), key="patch_medication_name")
+
+        use_atc_code = st.checkbox("Update ATC code", key="patch_medication_use_atc_code")
+        patch_atc_code = st.text_input(
+            "ATC code",
+            value=str(selected.get("atc_code") or ""),
+            key="patch_medication_atc_code",
+        )
+
+        use_description = st.checkbox("Update description", key="patch_medication_use_description")
+        patch_description = st.text_area(
+            "Description",
+            value=str(selected.get("description") or ""),
+            key="patch_medication_description",
+        )
+
+        submitted = st.form_submit_button("Apply patch", width="stretch")
+
+        if submitted:
+            payload: dict[str, Any] = {}
+            if use_name:
+                payload["name"] = patch_name.strip()
+            if use_atc_code:
+                payload["atc_code"] = optional_text(patch_atc_code)
+            if use_description:
+                payload["description"] = optional_text(patch_description)
+
+            status_code, data = request_json("PATCH", f"/medications/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_medication_delete_tab(medications: list[dict[str, Any]]) -> None:
+    """Render delete medication operation."""
+    if not medications:
+        st.info("Create at least one medication to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Medication to delete",
+        options=medications,
+        format_func=medication_label,
+        key="delete_medication_select",
+    )
+    confirm_delete = st.checkbox(
+        "I understand this action cannot be undone",
+        key="delete_medication_confirm",
+    )
+    if st.button("Delete medication", type="primary", disabled=not confirm_delete, width="stretch"):
+        status_code, data = request_json("DELETE", f"/medications/{selected['id']}")
+        show_api_result(status_code, data)
+        if 200 <= status_code < 300:
+            refresh_data()
+
+
+def render_medication_crud_workspace(medications: list[dict[str, Any]]) -> None:
+    """Render medication CRUD operations in compact tabs."""
+    card_open()
+    section_title("Medications CRUD Workspace")
+    op_tabs = st.tabs(["Create (POST)", "Read One (GET)", "Replace (PUT)", "Patch (PATCH)", "Delete (DELETE)"])
+
+    with op_tabs[0]:
+        render_medication_create_tab()
+    with op_tabs[1]:
+        render_medication_read_tab(medications)
+    with op_tabs[2]:
+        render_medication_put_tab(medications)
+    with op_tabs[3]:
+        render_medication_patch_tab(medications)
+    with op_tabs[4]:
+        render_medication_delete_tab(medications)
+
+    card_close()
+
+
+def medications_tab() -> None:
+    """Render medications management UI."""
+    st.subheader("Medications Management")
+    st.caption(f"Backend API: {API_BASE_URL}")
+
+    try:
+        medications = load_medications()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+
+    render_medications_overview(medications)
+    render_medication_crud_workspace(medications)
+
+
 def patient_pathology_row_label(row: dict[str, Any], pathologies_by_id: dict[int, dict[str, Any]]) -> str:
     """Build readable association label for patient overview selectors."""
     pathology_id = row.get("pathology_id")
@@ -1018,13 +1227,15 @@ def main() -> None:
     st.title("Burn Unit Database")
     st.caption("Unified light theme with compact CRUD workflow")
 
-    tabs = st.tabs(["Patients", "Pathologies", "Patient Overview"])
+    tabs = st.tabs(["Patient Overview", "Patients", "Pathologies", "Medications"])
     with tabs[0]:
-        patients_tab()
-    with tabs[1]:
-        pathologies_tab()
-    with tabs[2]:
         patient_overview_tab()
+    with tabs[1]:
+        patients_tab()
+    with tabs[2]:
+        pathologies_tab()
+    with tabs[3]:
+        medications_tab()
 
 
 if __name__ == "__main__":

@@ -141,6 +141,43 @@ class PatientPathologyRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class MedicationCreate(BaseModel):
+    """Payload used for creating a medication row."""
+
+    name: str
+    atc_code: str | None = None
+    description: str | None = None
+
+
+class MedicationWrite(BaseModel):
+    """Payload used for replacing editable medication fields."""
+
+    name: str
+    atc_code: str | None = None
+    description: str | None = None
+
+
+class MedicationPatch(BaseModel):
+    """Payload used for partially updating medication fields."""
+
+    name: str | None = None
+    atc_code: str | None = None
+    description: str | None = None
+
+
+class MedicationRead(BaseModel):
+    """Response model representing a medication row."""
+
+    id: int
+    name: str
+    atc_code: str | None = None
+    description: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 def get_connection() -> sqlite3.Connection:
     """Return a SQLite connection configured to expose rows as dictionaries."""
     connection = sqlite3.connect(DATABASE_PATH)
@@ -208,10 +245,30 @@ def get_patient_pathology_or_404(
     return dict(row)
 
 
+def get_medication_or_404(connection: sqlite3.Connection, medication_id: int) -> dict[str, Any]:
+    """Fetch a medication by id or raise 404 if not found."""
+    row = connection.execute(
+        """
+        SELECT id,
+               name,
+               ATC_code AS atc_code,
+               description,
+               created_at,
+               updated_at
+        FROM medications
+        WHERE id = ?
+        """,
+        (medication_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Medication not found")
+    return dict(row)
+
+
 def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
     """Fetch all rows from the provided table name in ascending id order when available."""
     query = f"SELECT * FROM {table_name}"
-    if table_name in {"patients", "addresses", "pathologies"}:
+    if table_name in {"patients", "addresses", "pathologies", "medications"}:
         query += " ORDER BY id"
 
     try:
@@ -231,7 +288,7 @@ def read_root() -> dict[str, str]:
     """Return a small index of available endpoints."""
     return {
         "message": "Burn Unit Database API is running.",
-        "endpoints": "/patients, /addresses, /pathologies, /patient-pathologies",
+        "endpoints": "/patients, /addresses, /pathologies, /patient-pathologies, /medications",
     }
 
 
@@ -532,6 +589,179 @@ def delete_pathology(pathology_id: int) -> dict[str, str]:
         ) from exc
 
     return {"message": f"Pathology {pathology_id} deleted"}
+
+
+@app.get("/medications", tags=["medications"])
+def get_medications() -> list[dict[str, Any]]:
+    """Return every medication row from the medications table."""
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id,
+                   name,
+                   ATC_code AS atc_code,
+                   description,
+                   created_at,
+                   updated_at
+            FROM medications
+            ORDER BY id
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.get("/medications/{medication_id}", tags=["medications"], response_model=MedicationRead)
+def get_medication(medication_id: int) -> dict[str, Any]:
+    """Return one medication row by id."""
+    with get_connection() as connection:
+        return get_medication_or_404(connection, medication_id)
+
+
+@app.post("/medications", tags=["medications"], response_model=MedicationRead, status_code=201)
+def create_medication(payload: MedicationCreate) -> dict[str, Any]:
+    """Create a new medication row and return the inserted record."""
+    try:
+        with get_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO medications (name, ATC_code, description)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    payload.name,
+                    payload.atc_code,
+                    payload.description,
+                ),
+            )
+            medication_id = cursor.lastrowid
+            row = connection.execute(
+                """
+                SELECT id,
+                       name,
+                       ATC_code AS atc_code,
+                       description,
+                       created_at,
+                       updated_at
+                FROM medications
+                WHERE id = ?
+                """,
+                (medication_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid medication data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Medication created but could not be read back")
+    return dict(row)
+
+
+@app.put("/medications/{medication_id}", tags=["medications"], response_model=MedicationRead)
+def update_medication(medication_id: int, payload: MedicationWrite) -> dict[str, Any]:
+    """Replace medication editable fields by id and return the updated record."""
+    try:
+        with get_connection() as connection:
+            get_medication_or_404(connection, medication_id)
+            connection.execute(
+                """
+                UPDATE medications
+                SET name = ?,
+                    ATC_code = ?,
+                    description = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    payload.name,
+                    payload.atc_code,
+                    payload.description,
+                    medication_id,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT id,
+                       name,
+                       ATC_code AS atc_code,
+                       description,
+                       created_at,
+                       updated_at
+                FROM medications
+                WHERE id = ?
+                """,
+                (medication_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid medication data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Medication updated but could not be read back")
+    return dict(row)
+
+
+@app.patch("/medications/{medication_id}", tags=["medications"], response_model=MedicationRead)
+def patch_medication(medication_id: int, payload: MedicationPatch) -> dict[str, Any]:
+    """Partially update medication fields by id and return the updated record."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {"name", "atc_code", "description"}
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        column_name = "ATC_code" if field == "atc_code" else field
+        assignments.append(f"{column_name} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.append(medication_id)
+
+    query = f"UPDATE medications SET {', '.join(assignments)} WHERE id = ?"
+
+    try:
+        with get_connection() as connection:
+            get_medication_or_404(connection, medication_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                """
+                SELECT id,
+                       name,
+                       ATC_code AS atc_code,
+                       description,
+                       created_at,
+                       updated_at
+                FROM medications
+                WHERE id = ?
+                """,
+                (medication_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid medication data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Medication updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/medications/{medication_id}", tags=["medications"])
+def delete_medication(medication_id: int) -> dict[str, str]:
+    """Delete one medication by id when no child rows block the operation."""
+    try:
+        with get_connection() as connection:
+            get_medication_or_404(connection, medication_id)
+            connection.execute("DELETE FROM medications WHERE id = ?", (medication_id,))
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete medication because it is referenced by related data: {exc}",
+        ) from exc
+
+    return {"message": f"Medication {medication_id} deleted"}
 
 
 @app.get("/patient-pathologies", tags=["patient_pathologies"])
