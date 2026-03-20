@@ -58,6 +58,60 @@ class PatientPatch(BaseModel):
     address: int | None = None
 
 
+class PathologyCreate(BaseModel):
+    """Payload used for creating a pathology row."""
+
+    id: int
+    name: str
+    fsn: str | None = None
+    semantic_tag: str | None = None
+    definition: str | None = None
+    icd11_code: str | None = None
+    mesh_id: str | None = None
+    status: str | None = "Active"
+
+
+class PathologyWrite(BaseModel):
+    """Payload used for replacing editable pathology fields."""
+
+    name: str
+    fsn: str | None = None
+    semantic_tag: str | None = None
+    definition: str | None = None
+    icd11_code: str | None = None
+    mesh_id: str | None = None
+    status: str | None = "Active"
+
+
+class PathologyPatch(BaseModel):
+    """Payload used for partially updating pathology fields."""
+
+    name: str | None = None
+    fsn: str | None = None
+    semantic_tag: str | None = None
+    definition: str | None = None
+    icd11_code: str | None = None
+    mesh_id: str | None = None
+    status: str | None = None
+
+
+class PathologyRead(BaseModel):
+    """Response model representing a pathology row."""
+
+    id: int
+    name: str
+    fsn: str | None = None
+    semantic_tag: str | None = None
+    definition: str | None = None
+    icd11_code: str | None = None
+    mesh_id: str | None = None
+    status: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 def get_connection() -> sqlite3.Connection:
     """Return a SQLite connection configured to expose rows as dictionaries."""
     connection = sqlite3.connect(DATABASE_PATH)
@@ -75,6 +129,35 @@ def get_patient_or_404(connection: sqlite3.Connection, patient_id: int) -> dict[
     if row is None:
         raise HTTPException(status_code=404, detail="Patient not found")
     return dict(row)
+
+
+def get_pathology_or_404(connection: sqlite3.Connection, pathology_id: int) -> dict[str, Any]:
+    """Fetch a pathology by id or raise 404 if not found."""
+    row = connection.execute(
+        "SELECT * FROM pathologies WHERE id = ?",
+        (pathology_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Pathology not found")
+    return dict(row)
+
+
+def get_pathologies_by_field_or_404(
+    connection: sqlite3.Connection,
+    field: str,
+    value: str,
+) -> list[dict[str, Any]]:
+    """Fetch pathologies by icd11_code or mesh_id, raising 404 when there are no matches."""
+    if field not in {"icd11_code", "mesh_id"}:
+        raise HTTPException(status_code=400, detail="Invalid lookup field")
+
+    rows = connection.execute(
+        f"SELECT * FROM pathologies WHERE {field} = ? ORDER BY id",
+        (value,),
+    ).fetchall()
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No pathologies found for {field}='{value}'")
+    return [dict(row) for row in rows]
 
 
 def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
@@ -249,6 +332,158 @@ def get_addresses() -> list[dict[str, Any]]:
 def get_pathologies() -> list[dict[str, Any]]:
     """Return every pathology row from the pathologies table."""
     return fetch_all_rows("pathologies")
+
+
+@app.get("/pathologies/{pathology_id}", tags=["pathologies"], response_model=PathologyRead)
+def get_pathology(pathology_id: int) -> dict[str, Any]:
+    """Return one pathology row by id."""
+    with get_connection() as connection:
+        return get_pathology_or_404(connection, pathology_id)
+
+
+@app.get("/pathologies/icd11/{icd11_code}", tags=["pathologies"], response_model=list[PathologyRead])
+def get_pathology_by_icd11_code(icd11_code: str) -> list[dict[str, Any]]:
+    """Return pathology rows matching an ICD-11 code."""
+    with get_connection() as connection:
+        return get_pathologies_by_field_or_404(connection, "icd11_code", icd11_code)
+
+
+@app.get("/pathologies/mesh/{mesh_id}", tags=["pathologies"], response_model=list[PathologyRead])
+def get_pathology_by_mesh_id(mesh_id: str) -> list[dict[str, Any]]:
+    """Return pathology rows matching a MeSH id."""
+    with get_connection() as connection:
+        return get_pathologies_by_field_or_404(connection, "mesh_id", mesh_id)
+
+
+@app.post("/pathologies", tags=["pathologies"], response_model=PathologyRead, status_code=201)
+def create_pathology(payload: PathologyCreate) -> dict[str, Any]:
+    """Create a new pathology row and return the inserted record."""
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO pathologies (id, name, fsn, semantic_tag, definition, icd11_code, mesh_id, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload.id,
+                    payload.name,
+                    payload.fsn,
+                    payload.semantic_tag,
+                    payload.definition,
+                    payload.icd11_code,
+                    payload.mesh_id,
+                    payload.status,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM pathologies WHERE id = ?",
+                (payload.id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid pathology data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Pathology created but could not be read back")
+    return dict(row)
+
+
+@app.put("/pathologies/{pathology_id}", tags=["pathologies"], response_model=PathologyRead)
+def update_pathology(pathology_id: int, payload: PathologyWrite) -> dict[str, Any]:
+    """Replace pathology editable fields by id and return the updated record."""
+    try:
+        with get_connection() as connection:
+            get_pathology_or_404(connection, pathology_id)
+            connection.execute(
+                """
+                UPDATE pathologies
+                SET name = ?,
+                    fsn = ?,
+                    semantic_tag = ?,
+                    definition = ?,
+                    icd11_code = ?,
+                    mesh_id = ?,
+                    status = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    payload.name,
+                    payload.fsn,
+                    payload.semantic_tag,
+                    payload.definition,
+                    payload.icd11_code,
+                    payload.mesh_id,
+                    payload.status,
+                    pathology_id,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM pathologies WHERE id = ?",
+                (pathology_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid pathology data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Pathology updated but could not be read back")
+    return dict(row)
+
+
+@app.patch("/pathologies/{pathology_id}", tags=["pathologies"], response_model=PathologyRead)
+def patch_pathology(pathology_id: int, payload: PathologyPatch) -> dict[str, Any]:
+    """Partially update pathology fields by id and return the updated record."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {"name", "fsn", "semantic_tag", "definition", "icd11_code", "mesh_id", "status"}
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.append(pathology_id)
+
+    query = f"UPDATE pathologies SET {', '.join(assignments)} WHERE id = ?"
+
+    try:
+        with get_connection() as connection:
+            get_pathology_or_404(connection, pathology_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                "SELECT * FROM pathologies WHERE id = ?",
+                (pathology_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid pathology data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Pathology updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/pathologies/{pathology_id}", tags=["pathologies"])
+def delete_pathology(pathology_id: int) -> dict[str, str]:
+    """Delete one pathology by id when no child rows block the operation."""
+    try:
+        with get_connection() as connection:
+            get_pathology_or_404(connection, pathology_id)
+            connection.execute("DELETE FROM pathologies WHERE id = ?", (pathology_id,))
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete pathology because it is referenced by related data: {exc}",
+        ) from exc
+
+    return {"message": f"Pathology {pathology_id} deleted"}
 
 
 @app.get("/patient-pathologies", tags=["patient_pathologies"])
