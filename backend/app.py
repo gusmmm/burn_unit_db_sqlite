@@ -112,6 +112,35 @@ class PathologyRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PatientPathologyCreate(BaseModel):
+    """Payload used for creating a patient-pathology association row."""
+
+    patient_id: int
+    pathology_id: int
+    diagnosed_date: str | None = None
+    severity: str | None = None
+
+
+class PatientPathologyPatch(BaseModel):
+    """Payload used for partially updating an association row."""
+
+    patient_id: int | None = None
+    pathology_id: int | None = None
+    diagnosed_date: str | None = None
+    severity: str | None = None
+
+
+class PatientPathologyRead(BaseModel):
+    """Response model representing a patient-pathology association row."""
+
+    patient_id: int
+    pathology_id: int
+    diagnosed_date: str | None = None
+    severity: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 def get_connection() -> sqlite3.Connection:
     """Return a SQLite connection configured to expose rows as dictionaries."""
     connection = sqlite3.connect(DATABASE_PATH)
@@ -158,6 +187,25 @@ def get_pathologies_by_field_or_404(
     if not rows:
         raise HTTPException(status_code=404, detail=f"No pathologies found for {field}='{value}'")
     return [dict(row) for row in rows]
+
+
+def get_patient_pathology_or_404(
+    connection: sqlite3.Connection,
+    patient_id: int,
+    pathology_id: int,
+) -> dict[str, Any]:
+    """Fetch an association row by composite key or raise 404 if not found."""
+    row = connection.execute(
+        """
+        SELECT *
+        FROM patient_pathologies
+        WHERE patient_id = ? AND pathology_id = ?
+        """,
+        (patient_id, pathology_id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Association not found")
+    return dict(row)
 
 
 def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
@@ -490,3 +538,110 @@ def delete_pathology(pathology_id: int) -> dict[str, str]:
 def get_patient_pathologies() -> list[dict[str, Any]]:
     """Return every row from the patient_pathologies join table."""
     return fetch_all_rows("patient_pathologies")
+
+
+@app.post(
+    "/patient-pathologies",
+    tags=["patient_pathologies"],
+    response_model=PatientPathologyRead,
+    status_code=201,
+)
+def create_patient_pathology_association(payload: PatientPathologyCreate) -> dict[str, Any]:
+    """Create a patient-pathology association and return the inserted row."""
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO patient_pathologies (patient_id, pathology_id, diagnosed_date, severity)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    payload.patient_id,
+                    payload.pathology_id,
+                    payload.diagnosed_date,
+                    payload.severity,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT *
+                FROM patient_pathologies
+                WHERE patient_id = ? AND pathology_id = ?
+                """,
+                (payload.patient_id, payload.pathology_id),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid association data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Association created but could not be read back")
+    return dict(row)
+
+
+@app.patch(
+    "/patient-pathologies/{patient_id}/{pathology_id}",
+    tags=["patient_pathologies"],
+    response_model=PatientPathologyRead,
+)
+def patch_patient_pathology_association(
+    patient_id: int,
+    pathology_id: int,
+    payload: PatientPathologyPatch,
+) -> dict[str, Any]:
+    """Partially update an association row by composite key and return the updated record."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {"patient_id", "pathology_id", "diagnosed_date", "severity"}
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    values.extend([patient_id, pathology_id])
+    query = (
+        f"UPDATE patient_pathologies SET {', '.join(assignments)} "
+        "WHERE patient_id = ? AND pathology_id = ?"
+    )
+
+    new_patient_id = updates.get("patient_id", patient_id)
+    new_pathology_id = updates.get("pathology_id", pathology_id)
+
+    try:
+        with get_connection() as connection:
+            get_patient_pathology_or_404(connection, patient_id, pathology_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                """
+                SELECT *
+                FROM patient_pathologies
+                WHERE patient_id = ? AND pathology_id = ?
+                """,
+                (new_patient_id, new_pathology_id),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid association data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Association updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/patient-pathologies/{patient_id}/{pathology_id}", tags=["patient_pathologies"])
+def delete_patient_pathology_association(patient_id: int, pathology_id: int) -> dict[str, str]:
+    """Delete one association row by composite key."""
+    with get_connection() as connection:
+        get_patient_pathology_or_404(connection, patient_id, pathology_id)
+        connection.execute(
+            "DELETE FROM patient_pathologies WHERE patient_id = ? AND pathology_id = ?",
+            (patient_id, pathology_id),
+        )
+
+    return {"message": f"Association ({patient_id}, {pathology_id}) deleted"}
