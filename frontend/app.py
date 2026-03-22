@@ -2649,12 +2649,12 @@ def main() -> None:
         [
             "Patient Overview",
             "Patients",
+            "Burn Unit Case Overview",
+            "Burn Unit Cases",
             "Pathologies",
             "Medications",
             "Provenance/Destination",
             "Burn Etiologies",
-            "Burn Unit Case Overview",
-            "Burn Unit Cases",
         ]
     )
     with tabs[0]:
@@ -2662,17 +2662,17 @@ def main() -> None:
     with tabs[1]:
         patients_tab()
     with tabs[2]:
-        pathologies_tab()
-    with tabs[3]:
-        medications_tab()
-    with tabs[4]:
-        provenance_destinations_tab()
-    with tabs[5]:
-        burn_etiologies_tab()
-    with tabs[6]:
         burn_unit_case_overview_tab()
-    with tabs[7]:
+    with tabs[3]:
         burn_unit_cases_tab()
+    with tabs[4]:
+        pathologies_tab()
+    with tabs[5]:
+        medications_tab()
+    with tabs[6]:
+        provenance_destinations_tab()
+    with tabs[7]:
+        burn_etiologies_tab()
 
 
 if __name__ == "__main__":
