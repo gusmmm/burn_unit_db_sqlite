@@ -72,33 +72,32 @@ CREATE TABLE IF NOT EXISTS patient_medications (
 ------- NEW SECTION: Burn-specific clinical data -------
 
 -- Table: burn_unit_clinical_data
--- CREATE TABLE IF NOT EXISTS burn_unit_cases (
---     id INTEGER PRIMARY KEY, -- Unique identifier for each clinical data entry
---     patient_id INTEGER NOT NULL, -- Reference to the patient
---     TBSA_burned REAL,  -- Percentage of body surface area burned
---     admission_date DATE,  -- Date of admission to the burn unit
---     burn_date DATE,  -- Date of burn injury
---     release_date DATE,  -- Date of discharge from the burn unit
---     admission_provenance INTEGER,  -- foreign key to table provenance_destination (e.g., emergency room, transfer from another hospital)
---     release_destination INTEGER,  --  foreign key to table provenance_destination (e.g., home, rehabilitation)
---     burn_mecanism TEXT CHECK (burn_mecanism IN ('heat', 'electrical_discharge', 'friction','chemical','radiaton','other')),  -- Me chanism of burn injury 
---     burn_etiology INTEGER,  --foreign key to table burn etiology
---     violence_related BOOLEAN,  -- Whether the burn injury is related to violence
---     suicide_attempt BOOLEAN,  -- Whether the burn injury is related
---     accident_type TEXT CHECK (accident_type IN ('workplace', 'domestic', 'traffic', 'war', 'terrorism', 'other')),  -- Type of accident (e.g., workplace, domestic, etc.)
---     wildfire BOOLEAN, 
---     bonfire_fogueira BOOLEAN,
---     fireplace_lareira BOOLEAN,
---     note TEXT,
---     special_forces TEXT CHECK (special_forces IN ('army', 'navy', 'air_force', 'firefighters', 'police', 'other')),
---     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
---     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
---     FOREIGN KEY (admission_provenance) REFERENCES provenance_destination(id),
---     FOREIGN KEY (release_destination) REFERENCES provenance_destination(id),
---     FOREIGN KEY (patient_id) REFERENCES patients(id),
---     FOREIGN KEY (burn_etiology) REFERENCES burn_etiology(id)
-
--- );
+CREATE TABLE IF NOT EXISTS burn_unit_cases (
+    id INTEGER PRIMARY KEY, -- Unique identifier for each clinical data entry
+    patient_id INTEGER NOT NULL, -- Reference to the patient
+    TBSA_burned REAL,  -- Percentage of body surface area burned
+    admission_date DATE,  -- Date of admission to the burn unit
+    burn_date DATE,  -- Date of burn injury
+    release_date DATE,  -- Date of discharge from the burn unit
+    admission_provenance INTEGER,  -- foreign key to table provenance_destination (e.g., emergency room, transfer from another hospital)
+    release_destination INTEGER,  --  foreign key to table provenance_destination (e.g., home, rehabilitation)
+    burn_mecanism TEXT CHECK (burn_mecanism IN ('heat', 'electrical_discharge', 'friction','chemical','radiaton','other')),  -- Me chanism of burn injury 
+    burn_etiology INTEGER,  --foreign key to table burn etiology
+    violence_related BOOLEAN,  -- Whether the burn injury is related to violence
+    suicide_attempt BOOLEAN,  -- Whether the burn injury is related
+    accident_type TEXT CHECK (accident_type IN ('workplace', 'domestic', 'traffic', 'war', 'terrorism', 'other')),  -- Type of accident (e.g., workplace, domestic, etc.)
+    wildfire BOOLEAN, 
+    bonfire_fogueira BOOLEAN,
+    fireplace_lareira BOOLEAN,
+    note TEXT,
+    special_forces TEXT CHECK (special_forces IN ('army', 'navy', 'air_force', 'firefighters', 'police', 'other')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (admission_provenance) REFERENCES provenance_destination(id),
+    FOREIGN KEY (release_destination) REFERENCES provenance_destination(id),
+    FOREIGN KEY (patient_id) REFERENCES patients(id),
+    FOREIGN KEY (burn_etiology) REFERENCES burn_etiology(id)
+);
 
 -- Table: provenance_destination
 CREATE TABLE IF NOT EXISTS provenance_destination (

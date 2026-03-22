@@ -248,6 +248,100 @@ class BurnEtiologyRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class BurnUnitCaseCreate(BaseModel):
+    """Payload used for creating a burn unit case row."""
+
+    id: int
+    patient_id: int
+    TBSA_burned: float | None = None
+    admission_date: str | None = None
+    burn_date: str | None = None
+    release_date: str | None = None
+    admission_provenance: int | None = None
+    release_destination: int | None = None
+    burn_mecanism: str | None = None
+    burn_etiology: int | None = None
+    violence_related: bool | None = None
+    suicide_attempt: bool | None = None
+    accident_type: str | None = None
+    wildfire: bool | None = None
+    bonfire_fogueira: bool | None = None
+    fireplace_lareira: bool | None = None
+    note: str | None = None
+    special_forces: str | None = None
+
+
+class BurnUnitCaseWrite(BaseModel):
+    """Payload used for replacing editable burn unit case fields."""
+
+    patient_id: int
+    TBSA_burned: float | None = None
+    admission_date: str | None = None
+    burn_date: str | None = None
+    release_date: str | None = None
+    admission_provenance: int | None = None
+    release_destination: int | None = None
+    burn_mecanism: str | None = None
+    burn_etiology: int | None = None
+    violence_related: bool | None = None
+    suicide_attempt: bool | None = None
+    accident_type: str | None = None
+    wildfire: bool | None = None
+    bonfire_fogueira: bool | None = None
+    fireplace_lareira: bool | None = None
+    note: str | None = None
+    special_forces: str | None = None
+
+
+class BurnUnitCasePatch(BaseModel):
+    """Payload used for partially updating burn unit case fields."""
+
+    patient_id: int | None = None
+    TBSA_burned: float | None = None
+    admission_date: str | None = None
+    burn_date: str | None = None
+    release_date: str | None = None
+    admission_provenance: int | None = None
+    release_destination: int | None = None
+    burn_mecanism: str | None = None
+    burn_etiology: int | None = None
+    violence_related: bool | None = None
+    suicide_attempt: bool | None = None
+    accident_type: str | None = None
+    wildfire: bool | None = None
+    bonfire_fogueira: bool | None = None
+    fireplace_lareira: bool | None = None
+    note: str | None = None
+    special_forces: str | None = None
+
+
+class BurnUnitCaseRead(BaseModel):
+    """Response model representing a burn unit case row."""
+
+    id: int
+    patient_id: int
+    TBSA_burned: float | None = None
+    admission_date: str | None = None
+    burn_date: str | None = None
+    release_date: str | None = None
+    admission_provenance: int | None = None
+    release_destination: int | None = None
+    burn_mecanism: str | None = None
+    burn_etiology: int | None = None
+    violence_related: bool | None = None
+    suicide_attempt: bool | None = None
+    accident_type: str | None = None
+    wildfire: bool | None = None
+    bonfire_fogueira: bool | None = None
+    fireplace_lareira: bool | None = None
+    note: str | None = None
+    special_forces: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PatientMedicationCreate(BaseModel):
     """Payload used for creating a patient-medication association row."""
 
@@ -408,6 +502,17 @@ def get_burn_etiology_or_404(connection: sqlite3.Connection, burn_etiology_id: i
     return dict(row)
 
 
+def get_burn_unit_case_or_404(connection: sqlite3.Connection, burn_unit_case_id: int) -> dict[str, Any]:
+    """Fetch a burn unit case row by id or raise 404 if not found."""
+    row = connection.execute(
+        "SELECT * FROM burn_unit_cases WHERE id = ?",
+        (burn_unit_case_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Burn unit case not found")
+    return dict(row)
+
+
 def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
     """Fetch all rows from the provided table name in ascending id order when available."""
     query = f"SELECT * FROM {table_name}"
@@ -418,6 +523,7 @@ def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
         "medications",
         "provenance_destination",
         "burn_etiology",
+        "burn_unit_cases",
     }:
         query += " ORDER BY id"
 
@@ -440,7 +546,7 @@ def read_root() -> dict[str, str]:
         "message": "Burn Unit Database API is running.",
         "endpoints": (
             "/patients, /addresses, /pathologies, /patient-pathologies, /medications, "
-            "/patient-medications, /provenance-destinations, /burn-etiologies"
+            "/patient-medications, /provenance-destinations, /burn-etiologies, /burn-unit-cases"
         ),
     }
 
@@ -1440,3 +1546,214 @@ def delete_burn_etiology(burn_etiology_id: int) -> dict[str, str]:
         ) from exc
 
     return {"message": f"Burn etiology {burn_etiology_id} deleted"}
+
+
+@app.get("/burn-unit-cases", tags=["burn_unit_cases"])
+def get_burn_unit_cases() -> list[dict[str, Any]]:
+    """Return every burn unit case row from the burn_unit_cases table."""
+    return fetch_all_rows("burn_unit_cases")
+
+
+@app.get("/burn-unit-cases/{burn_unit_case_id}", tags=["burn_unit_cases"], response_model=BurnUnitCaseRead)
+def get_burn_unit_case(burn_unit_case_id: int) -> dict[str, Any]:
+    """Return one burn unit case row by id."""
+    with get_connection() as connection:
+        return get_burn_unit_case_or_404(connection, burn_unit_case_id)
+
+
+@app.post("/burn-unit-cases", tags=["burn_unit_cases"], response_model=BurnUnitCaseRead, status_code=201)
+def create_burn_unit_case(payload: BurnUnitCaseCreate) -> dict[str, Any]:
+    """Create a new burn unit case row and return the inserted record."""
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO burn_unit_cases (
+                    id,
+                    patient_id,
+                    TBSA_burned,
+                    admission_date,
+                    burn_date,
+                    release_date,
+                    admission_provenance,
+                    release_destination,
+                    burn_mecanism,
+                    burn_etiology,
+                    violence_related,
+                    suicide_attempt,
+                    accident_type,
+                    wildfire,
+                    bonfire_fogueira,
+                    fireplace_lareira,
+                    note,
+                    special_forces
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload.id,
+                    payload.patient_id,
+                    payload.TBSA_burned,
+                    payload.admission_date,
+                    payload.burn_date,
+                    payload.release_date,
+                    payload.admission_provenance,
+                    payload.release_destination,
+                    payload.burn_mecanism,
+                    payload.burn_etiology,
+                    payload.violence_related,
+                    payload.suicide_attempt,
+                    payload.accident_type,
+                    payload.wildfire,
+                    payload.bonfire_fogueira,
+                    payload.fireplace_lareira,
+                    payload.note,
+                    payload.special_forces,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM burn_unit_cases WHERE id = ?",
+                (payload.id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid burn unit case data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Burn unit case created but could not be read back")
+    return dict(row)
+
+
+@app.put("/burn-unit-cases/{burn_unit_case_id}", tags=["burn_unit_cases"], response_model=BurnUnitCaseRead)
+def update_burn_unit_case(burn_unit_case_id: int, payload: BurnUnitCaseWrite) -> dict[str, Any]:
+    """Replace burn unit case editable fields by id and return the updated record."""
+    try:
+        with get_connection() as connection:
+            get_burn_unit_case_or_404(connection, burn_unit_case_id)
+            connection.execute(
+                """
+                UPDATE burn_unit_cases
+                SET patient_id = ?,
+                    TBSA_burned = ?,
+                    admission_date = ?,
+                    burn_date = ?,
+                    release_date = ?,
+                    admission_provenance = ?,
+                    release_destination = ?,
+                    burn_mecanism = ?,
+                    burn_etiology = ?,
+                    violence_related = ?,
+                    suicide_attempt = ?,
+                    accident_type = ?,
+                    wildfire = ?,
+                    bonfire_fogueira = ?,
+                    fireplace_lareira = ?,
+                    note = ?,
+                    special_forces = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    payload.patient_id,
+                    payload.TBSA_burned,
+                    payload.admission_date,
+                    payload.burn_date,
+                    payload.release_date,
+                    payload.admission_provenance,
+                    payload.release_destination,
+                    payload.burn_mecanism,
+                    payload.burn_etiology,
+                    payload.violence_related,
+                    payload.suicide_attempt,
+                    payload.accident_type,
+                    payload.wildfire,
+                    payload.bonfire_fogueira,
+                    payload.fireplace_lareira,
+                    payload.note,
+                    payload.special_forces,
+                    burn_unit_case_id,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM burn_unit_cases WHERE id = ?",
+                (burn_unit_case_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid burn unit case data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Burn unit case updated but could not be read back")
+    return dict(row)
+
+
+@app.patch("/burn-unit-cases/{burn_unit_case_id}", tags=["burn_unit_cases"], response_model=BurnUnitCaseRead)
+def patch_burn_unit_case(burn_unit_case_id: int, payload: BurnUnitCasePatch) -> dict[str, Any]:
+    """Partially update burn unit case fields by id and return the updated record."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {
+        "patient_id",
+        "TBSA_burned",
+        "admission_date",
+        "burn_date",
+        "release_date",
+        "admission_provenance",
+        "release_destination",
+        "burn_mecanism",
+        "burn_etiology",
+        "violence_related",
+        "suicide_attempt",
+        "accident_type",
+        "wildfire",
+        "bonfire_fogueira",
+        "fireplace_lareira",
+        "note",
+        "special_forces",
+    }
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.append(burn_unit_case_id)
+
+    query = f"UPDATE burn_unit_cases SET {', '.join(assignments)} WHERE id = ?"
+
+    try:
+        with get_connection() as connection:
+            get_burn_unit_case_or_404(connection, burn_unit_case_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                "SELECT * FROM burn_unit_cases WHERE id = ?",
+                (burn_unit_case_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid burn unit case data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Burn unit case updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/burn-unit-cases/{burn_unit_case_id}", tags=["burn_unit_cases"])
+def delete_burn_unit_case(burn_unit_case_id: int) -> dict[str, str]:
+    """Delete one burn unit case row by id when no child rows block the operation."""
+    try:
+        with get_connection() as connection:
+            get_burn_unit_case_or_404(connection, burn_unit_case_id)
+            connection.execute("DELETE FROM burn_unit_cases WHERE id = ?", (burn_unit_case_id,))
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete burn unit case because it is referenced by related data: {exc}",
+        ) from exc
+
+    return {"message": f"Burn unit case {burn_unit_case_id} deleted"}
