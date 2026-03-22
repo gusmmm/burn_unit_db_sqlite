@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS patient_pathologies (
     FOREIGN KEY (pathology_id) REFERENCES pathologies(id)
 );
 
+-- Table: medications
 CREATE TABLE IF NOT EXISTS medications (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS medications (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Table: patient_medications
 CREATE TABLE IF NOT EXISTS patient_medications (
     patient_id INTEGER NOT NULL,
     medication_id INTEGER NOT NULL,
@@ -66,3 +68,71 @@ CREATE TABLE IF NOT EXISTS patient_medications (
     FOREIGN KEY (patient_id) REFERENCES patients(id),
     FOREIGN KEY (medication_id) REFERENCES medications(id)
 );
+
+------- NEW SECTION: Burn-specific clinical data -------
+
+-- Table: burn_unit_clinical_data
+-- CREATE TABLE IF NOT EXISTS burn_unit_cases (
+--     id INTEGER PRIMARY KEY, -- Unique identifier for each clinical data entry
+--     patient_id INTEGER NOT NULL, -- Reference to the patient
+--     TBSA_burned REAL,  -- Percentage of body surface area burned
+--     admission_date DATE,  -- Date of admission to the burn unit
+--     burn_date DATE,  -- Date of burn injury
+--     release_date DATE,  -- Date of discharge from the burn unit
+--     admission_provenance INTEGER,  -- foreign key to table provenance_destination (e.g., emergency room, transfer from another hospital)
+--     release_destination INTEGER,  --  foreign key to table provenance_destination (e.g., home, rehabilitation)
+--     burn_mecanism TEXT CHECK (burn_mecanism IN ('heat', 'electrical_discharge', 'friction','chemical','radiaton','other')),  -- Me chanism of burn injury 
+--     burn_etiology INTEGER,  --foreign key to table burn etiology
+--     violence_related BOOLEAN,  -- Whether the burn injury is related to violence
+--     suicide_attempt BOOLEAN,  -- Whether the burn injury is related
+--     accident_type TEXT CHECK (accident_type IN ('workplace', 'domestic', 'traffic', 'war', 'terrorism', 'other')),  -- Type of accident (e.g., workplace, domestic, etc.)
+--     wildfire BOOLEAN, 
+--     bonfire_fogueira BOOLEAN,
+--     fireplace_lareira BOOLEAN,
+--     note TEXT,
+--     special_forces TEXT CHECK (special_forces IN ('army', 'navy', 'air_force', 'firefighters', 'police', 'other')),
+--     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--     FOREIGN KEY (admission_provenance) REFERENCES provenance_destination(id),
+--     FOREIGN KEY (release_destination) REFERENCES provenance_destination(id),
+--     FOREIGN KEY (patient_id) REFERENCES patients(id),
+--     FOREIGN KEY (burn_etiology) REFERENCES burn_etiology(id)
+
+-- );
+
+-- Table: provenance_destination
+CREATE TABLE IF NOT EXISTS provenance_destination (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT CHECK (type IN ('hospital', 'department','emergency','other')),
+    location INTEGER, --foreign key to addresses
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (location) REFERENCES addresses(id)
+);
+
+-- Table: burn_etiology
+CREATE TABLE IF NOT EXISTS burn_etiology (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Table: case_associated_injuries
+-- Table: burn_depth
+-- Table: anatomic_locations
+-- Table: case_burns
+-- Table: interventions
+-- Table: case_interventions
+-- Table: infections
+-- Table: case_infections
+-- Table: antibiotics
+-- Table: case_antibiotics
+-- Table: microbiology
+-- Table: case_microbiology
+-- Table: procedures
+-- Table: case_procedures
+-- Table: complications
+-- Table: case_complications

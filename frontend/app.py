@@ -11,6 +11,7 @@ import streamlit as st
 
 ALLOWED_GENDERS = ["M", "F", "other"]
 ALLOWED_PATHOLOGY_STATUSES = ["Active", "Inactive"]
+ALLOWED_PROVENANCE_TYPES = ["hospital", "department", "emergency", "other"]
 API_BASE_URL = os.getenv("BURN_API_URL", "http://127.0.0.1:8000").rstrip("/")
 
 # Centralized visual tokens to simplify theme maintenance.
@@ -227,6 +228,24 @@ def load_medications() -> list[dict[str, Any]]:
     return data
 
 
+@st.cache_data(ttl=5)
+def load_provenance_destinations() -> list[dict[str, Any]]:
+    """Load all provenance_destination rows from API."""
+    status, data = request_json("GET", "/provenance-destinations")
+    if status != 200:
+        raise RuntimeError(f"Could not load provenance destinations: {data}")
+    return data
+
+
+@st.cache_data(ttl=5)
+def load_burn_etiologies() -> list[dict[str, Any]]:
+    """Load all burn_etiology rows from API."""
+    status, data = request_json("GET", "/burn-etiologies")
+    if status != 200:
+        raise RuntimeError(f"Could not load burn etiologies: {data}")
+    return data
+
+
 def birth_date_text(value: Any) -> str:
     """Return birth date as ISO text for text-input fields."""
     if not value:
@@ -280,6 +299,18 @@ def medication_label(medication: dict[str, Any]) -> str:
     return f"{medication.get('id')} - {medication.get('name')} (ATC: {atc_code})"
 
 
+def provenance_destination_label(item: dict[str, Any]) -> str:
+    """Build human-readable provenance/destination label for selectors."""
+    type_value = item.get("type") or "-"
+    location_value = item.get("location") if item.get("location") is not None else "-"
+    return f"{item.get('id')} - {item.get('name')} (type: {type_value}, location: {location_value})"
+
+
+def burn_etiology_label(item: dict[str, Any]) -> str:
+    """Build human-readable burn etiology label for selectors."""
+    return f"{item.get('id')} - {item.get('name')}"
+
+
 def optional_text(value: str) -> str | None:
     """Normalize optional string input by mapping empty values to None."""
     clean = value.strip()
@@ -304,6 +335,8 @@ def refresh_data() -> None:
     load_patient_pathologies.clear()
     load_patient_medications.clear()
     load_medications.clear()
+    load_provenance_destinations.clear()
+    load_burn_etiologies.clear()
     st.rerun()
 
 
@@ -1006,6 +1039,441 @@ def medications_tab() -> None:
     render_medication_crud_workspace(medications)
 
 
+def render_provenance_destinations_overview(
+    provenance_destinations: list[dict[str, Any]],
+    addresses: list[dict[str, Any]],
+) -> None:
+    """Render compact overview and provenance destination list."""
+    cols = st.columns([2, 1])
+    with cols[0]:
+        st.markdown(
+            f"<span class='ui-badge'>Provenance/Destination rows: {len(provenance_destinations)}</span>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(f"<span class='ui-badge'>Addresses: {len(addresses)}</span>", unsafe_allow_html=True)
+        st.markdown("<span class='ui-badge'>Operations: GET, POST, PUT, PATCH, DELETE</span>", unsafe_allow_html=True)
+    with cols[1]:
+        if st.button("Refresh now", width="stretch", key="refresh_provenance_destinations"):
+            refresh_data()
+
+    card_open(compact=True)
+    section_title("Current Provenance/Destination Rows")
+    if provenance_destinations:
+        st.dataframe(provenance_destinations, width="stretch", hide_index=True)
+    else:
+        st.info("No provenance/destination rows available yet.")
+    card_close()
+
+
+def render_provenance_destination_create_tab(addr_opts: list[dict[str, Any]]) -> None:
+    """Render create provenance destination operation."""
+    type_options: list[str | None] = [None, *ALLOWED_PROVENANCE_TYPES]
+
+    with st.form("create_provenance_destination_form"):
+        name = st.text_input("Name", placeholder="Provenance or destination name")
+        type_value = st.selectbox(
+            "Type",
+            options=type_options,
+            format_func=lambda value: "No type" if value is None else value,
+        )
+        location = st.selectbox(
+            "Location (municipio)",
+            options=addr_opts,
+            format_func=lambda x: x["label"],
+            key="create_provenance_destination_location",
+        )
+        submitted = st.form_submit_button("Create provenance/destination", width="stretch")
+
+        if submitted:
+            payload = {
+                "name": name.strip(),
+                "type": type_value,
+                "location": location["id"],
+            }
+            status_code, data = request_json("POST", "/provenance-destinations", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_provenance_destination_read_tab(provenance_destinations: list[dict[str, Any]]) -> None:
+    """Render read single provenance destination operation."""
+    if not provenance_destinations:
+        st.info("Create at least one provenance/destination row to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Select provenance/destination",
+        options=provenance_destinations,
+        format_func=provenance_destination_label,
+        key="read_provenance_destination_select",
+    )
+    if st.button("Fetch provenance/destination", width="stretch", key="read_provenance_destination_button"):
+        status_code, data = request_json("GET", f"/provenance-destinations/{selected['id']}")
+        show_api_result(status_code, data)
+
+
+def render_provenance_destination_put_tab(
+    provenance_destinations: list[dict[str, Any]],
+    addr_opts: list[dict[str, Any]],
+) -> None:
+    """Render full replace provenance destination operation."""
+    if not provenance_destinations:
+        st.info("Create at least one provenance/destination row to use this operation.")
+        return
+
+    type_options: list[str | None] = [None, *ALLOWED_PROVENANCE_TYPES]
+    selected = st.selectbox(
+        "Provenance/destination to replace",
+        options=provenance_destinations,
+        format_func=provenance_destination_label,
+        key="put_provenance_destination_select",
+    )
+
+    with st.form("put_provenance_destination_form"):
+        name = st.text_input("Name", value=str(selected.get("name", "")))
+        type_value = st.selectbox(
+            "Type",
+            options=type_options,
+            index=type_options.index(selected.get("type")) if selected.get("type") in type_options else 0,
+            format_func=lambda value: "No type" if value is None else value,
+            key="put_provenance_destination_type",
+        )
+        location = st.selectbox(
+            "Location (municipio)",
+            options=addr_opts,
+            format_func=lambda x: x["label"],
+            index=address_option_index(addr_opts, selected.get("location")),
+            key="put_provenance_destination_location",
+        )
+        submitted = st.form_submit_button("Replace provenance/destination", width="stretch")
+
+        if submitted:
+            payload = {
+                "name": name.strip(),
+                "type": type_value,
+                "location": location["id"],
+            }
+            status_code, data = request_json("PUT", f"/provenance-destinations/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_provenance_destination_patch_tab(
+    provenance_destinations: list[dict[str, Any]],
+    addr_opts: list[dict[str, Any]],
+) -> None:
+    """Render partial update provenance destination operation."""
+    if not provenance_destinations:
+        st.info("Create at least one provenance/destination row to use this operation.")
+        return
+
+    type_options: list[str | None] = [None, *ALLOWED_PROVENANCE_TYPES]
+    selected = st.selectbox(
+        "Provenance/destination to patch",
+        options=provenance_destinations,
+        format_func=provenance_destination_label,
+        key="patch_provenance_destination_select",
+    )
+
+    with st.form("patch_provenance_destination_form"):
+        use_name = st.checkbox("Update name", key="patch_provenance_destination_use_name")
+        patch_name = st.text_input(
+            "Name",
+            value=str(selected.get("name", "")),
+            key="patch_provenance_destination_name",
+        )
+
+        use_type = st.checkbox("Update type", key="patch_provenance_destination_use_type")
+        patch_type = st.selectbox(
+            "Type",
+            options=type_options,
+            index=type_options.index(selected.get("type")) if selected.get("type") in type_options else 0,
+            format_func=lambda value: "No type" if value is None else value,
+            key="patch_provenance_destination_type",
+        )
+
+        use_location = st.checkbox("Update location", key="patch_provenance_destination_use_location")
+        patch_location = st.selectbox(
+            "Location (municipio)",
+            options=addr_opts,
+            format_func=lambda x: x["label"],
+            index=address_option_index(addr_opts, selected.get("location")),
+            key="patch_provenance_destination_location",
+        )
+
+        submitted = st.form_submit_button("Apply patch", width="stretch")
+
+        if submitted:
+            payload: dict[str, Any] = {}
+            if use_name:
+                payload["name"] = patch_name.strip()
+            if use_type:
+                payload["type"] = patch_type
+            if use_location:
+                payload["location"] = patch_location["id"]
+
+            status_code, data = request_json("PATCH", f"/provenance-destinations/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_provenance_destination_delete_tab(provenance_destinations: list[dict[str, Any]]) -> None:
+    """Render delete provenance destination operation."""
+    if not provenance_destinations:
+        st.info("Create at least one provenance/destination row to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Provenance/destination to delete",
+        options=provenance_destinations,
+        format_func=provenance_destination_label,
+        key="delete_provenance_destination_select",
+    )
+    confirm_delete = st.checkbox(
+        "I understand this action cannot be undone",
+        key="delete_provenance_destination_confirm",
+    )
+    if st.button(
+        "Delete provenance/destination",
+        type="primary",
+        disabled=not confirm_delete,
+        width="stretch",
+        key="delete_provenance_destination_button",
+    ):
+        status_code, data = request_json("DELETE", f"/provenance-destinations/{selected['id']}")
+        show_api_result(status_code, data)
+        if 200 <= status_code < 300:
+            refresh_data()
+
+
+def render_provenance_destination_crud_workspace(
+    provenance_destinations: list[dict[str, Any]],
+    addr_opts: list[dict[str, Any]],
+) -> None:
+    """Render provenance destination CRUD operations in compact tabs."""
+    card_open()
+    section_title("Provenance/Destination CRUD Workspace")
+    op_tabs = st.tabs(["Create (POST)", "Read One (GET)", "Replace (PUT)", "Patch (PATCH)", "Delete (DELETE)"])
+
+    with op_tabs[0]:
+        render_provenance_destination_create_tab(addr_opts)
+    with op_tabs[1]:
+        render_provenance_destination_read_tab(provenance_destinations)
+    with op_tabs[2]:
+        render_provenance_destination_put_tab(provenance_destinations, addr_opts)
+    with op_tabs[3]:
+        render_provenance_destination_patch_tab(provenance_destinations, addr_opts)
+    with op_tabs[4]:
+        render_provenance_destination_delete_tab(provenance_destinations)
+
+    card_close()
+
+
+def provenance_destinations_tab() -> None:
+    """Render provenance destination management UI."""
+    st.subheader("Provenance/Destination Management")
+    st.caption(f"Backend API: {API_BASE_URL}")
+
+    try:
+        provenance_destinations = load_provenance_destinations()
+        addresses = load_addresses()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+
+    render_provenance_destinations_overview(provenance_destinations, addresses)
+    render_provenance_destination_crud_workspace(provenance_destinations, address_options(addresses))
+
+
+def render_burn_etiologies_overview(burn_etiologies: list[dict[str, Any]]) -> None:
+    """Render compact overview and burn etiology list."""
+    cols = st.columns([2, 1])
+    with cols[0]:
+        st.markdown(f"<span class='ui-badge'>Burn etiologies: {len(burn_etiologies)}</span>", unsafe_allow_html=True)
+        st.markdown("<span class='ui-badge'>Operations: GET, POST, PUT, PATCH, DELETE</span>", unsafe_allow_html=True)
+    with cols[1]:
+        if st.button("Refresh now", width="stretch", key="refresh_burn_etiologies"):
+            refresh_data()
+
+    card_open(compact=True)
+    section_title("Current Burn Etiologies")
+    if burn_etiologies:
+        st.dataframe(burn_etiologies, width="stretch", hide_index=True)
+    else:
+        st.info("No burn etiologies available yet.")
+    card_close()
+
+
+def render_burn_etiology_create_tab() -> None:
+    """Render create burn etiology operation."""
+    with st.form("create_burn_etiology_form"):
+        name = st.text_input("Name", placeholder="Burn etiology name")
+        description = st.text_area("Description", placeholder="Optional description")
+        submitted = st.form_submit_button("Create burn etiology", width="stretch")
+
+        if submitted:
+            payload = {
+                "name": name.strip(),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("POST", "/burn-etiologies", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_burn_etiology_read_tab(burn_etiologies: list[dict[str, Any]]) -> None:
+    """Render read single burn etiology operation."""
+    if not burn_etiologies:
+        st.info("Create at least one burn etiology row to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Select burn etiology",
+        options=burn_etiologies,
+        format_func=burn_etiology_label,
+        key="read_burn_etiology_select",
+    )
+    if st.button("Fetch burn etiology", width="stretch", key="read_burn_etiology_button"):
+        status_code, data = request_json("GET", f"/burn-etiologies/{selected['id']}")
+        show_api_result(status_code, data)
+
+
+def render_burn_etiology_put_tab(burn_etiologies: list[dict[str, Any]]) -> None:
+    """Render full replace burn etiology operation."""
+    if not burn_etiologies:
+        st.info("Create at least one burn etiology row to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Burn etiology to replace",
+        options=burn_etiologies,
+        format_func=burn_etiology_label,
+        key="put_burn_etiology_select",
+    )
+
+    with st.form("put_burn_etiology_form"):
+        name = st.text_input("Name", value=str(selected.get("name", "")))
+        description = st.text_area("Description", value=str(selected.get("description") or ""))
+        submitted = st.form_submit_button("Replace burn etiology", width="stretch")
+
+        if submitted:
+            payload = {
+                "name": name.strip(),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("PUT", f"/burn-etiologies/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_burn_etiology_patch_tab(burn_etiologies: list[dict[str, Any]]) -> None:
+    """Render partial update burn etiology operation."""
+    if not burn_etiologies:
+        st.info("Create at least one burn etiology row to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Burn etiology to patch",
+        options=burn_etiologies,
+        format_func=burn_etiology_label,
+        key="patch_burn_etiology_select",
+    )
+
+    with st.form("patch_burn_etiology_form"):
+        use_name = st.checkbox("Update name", key="patch_burn_etiology_use_name")
+        patch_name = st.text_input("Name", value=str(selected.get("name", "")), key="patch_burn_etiology_name")
+
+        use_description = st.checkbox("Update description", key="patch_burn_etiology_use_description")
+        patch_description = st.text_area(
+            "Description",
+            value=str(selected.get("description") or ""),
+            key="patch_burn_etiology_description",
+        )
+
+        submitted = st.form_submit_button("Apply patch", width="stretch")
+
+        if submitted:
+            payload: dict[str, Any] = {}
+            if use_name:
+                payload["name"] = patch_name.strip()
+            if use_description:
+                payload["description"] = optional_text(patch_description)
+
+            status_code, data = request_json("PATCH", f"/burn-etiologies/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_burn_etiology_delete_tab(burn_etiologies: list[dict[str, Any]]) -> None:
+    """Render delete burn etiology operation."""
+    if not burn_etiologies:
+        st.info("Create at least one burn etiology row to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Burn etiology to delete",
+        options=burn_etiologies,
+        format_func=burn_etiology_label,
+        key="delete_burn_etiology_select",
+    )
+    confirm_delete = st.checkbox(
+        "I understand this action cannot be undone",
+        key="delete_burn_etiology_confirm",
+    )
+    if st.button(
+        "Delete burn etiology",
+        type="primary",
+        disabled=not confirm_delete,
+        width="stretch",
+        key="delete_burn_etiology_button",
+    ):
+        status_code, data = request_json("DELETE", f"/burn-etiologies/{selected['id']}")
+        show_api_result(status_code, data)
+        if 200 <= status_code < 300:
+            refresh_data()
+
+
+def render_burn_etiology_crud_workspace(burn_etiologies: list[dict[str, Any]]) -> None:
+    """Render burn etiology CRUD operations in compact tabs."""
+    card_open()
+    section_title("Burn Etiology CRUD Workspace")
+    op_tabs = st.tabs(["Create (POST)", "Read One (GET)", "Replace (PUT)", "Patch (PATCH)", "Delete (DELETE)"])
+
+    with op_tabs[0]:
+        render_burn_etiology_create_tab()
+    with op_tabs[1]:
+        render_burn_etiology_read_tab(burn_etiologies)
+    with op_tabs[2]:
+        render_burn_etiology_put_tab(burn_etiologies)
+    with op_tabs[3]:
+        render_burn_etiology_patch_tab(burn_etiologies)
+    with op_tabs[4]:
+        render_burn_etiology_delete_tab(burn_etiologies)
+
+    card_close()
+
+
+def burn_etiologies_tab() -> None:
+    """Render burn etiology management UI."""
+    st.subheader("Burn Etiologies Management")
+    st.caption(f"Backend API: {API_BASE_URL}")
+
+    try:
+        burn_etiologies = load_burn_etiologies()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+
+    render_burn_etiologies_overview(burn_etiologies)
+    render_burn_etiology_crud_workspace(burn_etiologies)
+
+
 def patient_pathology_row_label(row: dict[str, Any], pathologies_by_id: dict[int, dict[str, Any]]) -> str:
     """Build readable association label for patient overview selectors."""
     pathology_id = row.get("pathology_id")
@@ -1423,7 +1891,16 @@ def main() -> None:
     st.title("Burn Unit Database")
     st.caption("Unified light theme with compact CRUD workflow")
 
-    tabs = st.tabs(["Patient Overview", "Patients", "Pathologies", "Medications"])
+    tabs = st.tabs(
+        [
+            "Patient Overview",
+            "Patients",
+            "Pathologies",
+            "Medications",
+            "Provenance/Destination",
+            "Burn Etiologies",
+        ]
+    )
     with tabs[0]:
         patient_overview_tab()
     with tabs[1]:
@@ -1432,6 +1909,10 @@ def main() -> None:
         pathologies_tab()
     with tabs[3]:
         medications_tab()
+    with tabs[4]:
+        provenance_destinations_tab()
+    with tabs[5]:
+        burn_etiologies_tab()
 
 
 if __name__ == "__main__":

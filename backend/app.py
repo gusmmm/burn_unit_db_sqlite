@@ -178,6 +178,76 @@ class MedicationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ProvenanceDestinationCreate(BaseModel):
+    """Payload used for creating a provenance/destination row."""
+
+    name: str
+    type: str | None = None
+    location: int | None = None
+
+
+class ProvenanceDestinationWrite(BaseModel):
+    """Payload used for replacing editable provenance/destination fields."""
+
+    name: str
+    type: str | None = None
+    location: int | None = None
+
+
+class ProvenanceDestinationPatch(BaseModel):
+    """Payload used for partially updating provenance/destination fields."""
+
+    name: str | None = None
+    type: str | None = None
+    location: int | None = None
+
+
+class ProvenanceDestinationRead(BaseModel):
+    """Response model representing a provenance/destination row."""
+
+    id: int
+    name: str
+    type: str | None = None
+    location: int | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BurnEtiologyCreate(BaseModel):
+    """Payload used for creating a burn etiology row."""
+
+    name: str
+    description: str | None = None
+
+
+class BurnEtiologyWrite(BaseModel):
+    """Payload used for replacing editable burn etiology fields."""
+
+    name: str
+    description: str | None = None
+
+
+class BurnEtiologyPatch(BaseModel):
+    """Payload used for partially updating burn etiology fields."""
+
+    name: str | None = None
+    description: str | None = None
+
+
+class BurnEtiologyRead(BaseModel):
+    """Response model representing a burn etiology row."""
+
+    id: int
+    name: str
+    description: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PatientMedicationCreate(BaseModel):
     """Payload used for creating a patient-medication association row."""
 
@@ -313,10 +383,42 @@ def get_patient_medication_or_404(
     return dict(row)
 
 
+def get_provenance_destination_or_404(
+    connection: sqlite3.Connection,
+    provenance_destination_id: int,
+) -> dict[str, Any]:
+    """Fetch a provenance/destination row by id or raise 404 if not found."""
+    row = connection.execute(
+        "SELECT * FROM provenance_destination WHERE id = ?",
+        (provenance_destination_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Provenance/destination not found")
+    return dict(row)
+
+
+def get_burn_etiology_or_404(connection: sqlite3.Connection, burn_etiology_id: int) -> dict[str, Any]:
+    """Fetch a burn etiology row by id or raise 404 if not found."""
+    row = connection.execute(
+        "SELECT * FROM burn_etiology WHERE id = ?",
+        (burn_etiology_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Burn etiology not found")
+    return dict(row)
+
+
 def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
     """Fetch all rows from the provided table name in ascending id order when available."""
     query = f"SELECT * FROM {table_name}"
-    if table_name in {"patients", "addresses", "pathologies", "medications"}:
+    if table_name in {
+        "patients",
+        "addresses",
+        "pathologies",
+        "medications",
+        "provenance_destination",
+        "burn_etiology",
+    }:
         query += " ORDER BY id"
 
     try:
@@ -337,7 +439,8 @@ def read_root() -> dict[str, str]:
     return {
         "message": "Burn Unit Database API is running.",
         "endpoints": (
-            "/patients, /addresses, /pathologies, /patient-pathologies, /medications, /patient-medications"
+            "/patients, /addresses, /pathologies, /patient-pathologies, /medications, "
+            "/patient-medications, /provenance-destinations, /burn-etiologies"
         ),
     }
 
@@ -1038,3 +1141,302 @@ def delete_patient_medication_association(patient_id: int, medication_id: int) -
         )
 
     return {"message": f"Patient-medication association ({patient_id}, {medication_id}) deleted"}
+
+
+@app.get("/provenance-destinations", tags=["provenance_destinations"])
+def get_provenance_destinations() -> list[dict[str, Any]]:
+    """Return every provenance/destination row from the provenance_destination table."""
+    return fetch_all_rows("provenance_destination")
+
+
+@app.get(
+    "/provenance-destinations/{provenance_destination_id}",
+    tags=["provenance_destinations"],
+    response_model=ProvenanceDestinationRead,
+)
+def get_provenance_destination(provenance_destination_id: int) -> dict[str, Any]:
+    """Return one provenance/destination row by id."""
+    with get_connection() as connection:
+        return get_provenance_destination_or_404(connection, provenance_destination_id)
+
+
+@app.post(
+    "/provenance-destinations",
+    tags=["provenance_destinations"],
+    response_model=ProvenanceDestinationRead,
+    status_code=201,
+)
+def create_provenance_destination(payload: ProvenanceDestinationCreate) -> dict[str, Any]:
+    """Create a new provenance/destination row and return the inserted record."""
+    try:
+        with get_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO provenance_destination (name, type, location)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    payload.name,
+                    payload.type,
+                    payload.location,
+                ),
+            )
+            provenance_destination_id = cursor.lastrowid
+            row = connection.execute(
+                "SELECT * FROM provenance_destination WHERE id = ?",
+                (provenance_destination_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid provenance/destination data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Provenance/destination created but could not be read back",
+        )
+    return dict(row)
+
+
+@app.put(
+    "/provenance-destinations/{provenance_destination_id}",
+    tags=["provenance_destinations"],
+    response_model=ProvenanceDestinationRead,
+)
+def update_provenance_destination(
+    provenance_destination_id: int,
+    payload: ProvenanceDestinationWrite,
+) -> dict[str, Any]:
+    """Replace provenance/destination editable fields by id and return the updated record."""
+    try:
+        with get_connection() as connection:
+            get_provenance_destination_or_404(connection, provenance_destination_id)
+            connection.execute(
+                """
+                UPDATE provenance_destination
+                SET name = ?,
+                    type = ?,
+                    location = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    payload.name,
+                    payload.type,
+                    payload.location,
+                    provenance_destination_id,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM provenance_destination WHERE id = ?",
+                (provenance_destination_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid provenance/destination data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Provenance/destination updated but could not be read back",
+        )
+    return dict(row)
+
+
+@app.patch(
+    "/provenance-destinations/{provenance_destination_id}",
+    tags=["provenance_destinations"],
+    response_model=ProvenanceDestinationRead,
+)
+def patch_provenance_destination(
+    provenance_destination_id: int,
+    payload: ProvenanceDestinationPatch,
+) -> dict[str, Any]:
+    """Partially update provenance/destination fields by id and return the updated record."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {"name", "type", "location"}
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.append(provenance_destination_id)
+
+    query = f"UPDATE provenance_destination SET {', '.join(assignments)} WHERE id = ?"
+
+    try:
+        with get_connection() as connection:
+            get_provenance_destination_or_404(connection, provenance_destination_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                "SELECT * FROM provenance_destination WHERE id = ?",
+                (provenance_destination_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid provenance/destination data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Provenance/destination updated but could not be read back",
+        )
+    return dict(row)
+
+
+@app.delete("/provenance-destinations/{provenance_destination_id}", tags=["provenance_destinations"])
+def delete_provenance_destination(provenance_destination_id: int) -> dict[str, str]:
+    """Delete one provenance/destination row by id when no child rows block the operation."""
+    try:
+        with get_connection() as connection:
+            get_provenance_destination_or_404(connection, provenance_destination_id)
+            connection.execute(
+                "DELETE FROM provenance_destination WHERE id = ?",
+                (provenance_destination_id,),
+            )
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Cannot delete provenance/destination because it is referenced by related data: "
+                f"{exc}"
+            ),
+        ) from exc
+
+    return {"message": f"Provenance/destination {provenance_destination_id} deleted"}
+
+
+@app.get("/burn-etiologies", tags=["burn_etiologies"])
+def get_burn_etiologies() -> list[dict[str, Any]]:
+    """Return every burn etiology row from the burn_etiology table."""
+    return fetch_all_rows("burn_etiology")
+
+
+@app.get("/burn-etiologies/{burn_etiology_id}", tags=["burn_etiologies"], response_model=BurnEtiologyRead)
+def get_burn_etiology(burn_etiology_id: int) -> dict[str, Any]:
+    """Return one burn etiology row by id."""
+    with get_connection() as connection:
+        return get_burn_etiology_or_404(connection, burn_etiology_id)
+
+
+@app.post("/burn-etiologies", tags=["burn_etiologies"], response_model=BurnEtiologyRead, status_code=201)
+def create_burn_etiology(payload: BurnEtiologyCreate) -> dict[str, Any]:
+    """Create a new burn etiology row and return the inserted record."""
+    try:
+        with get_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO burn_etiology (name, description)
+                VALUES (?, ?)
+                """,
+                (
+                    payload.name,
+                    payload.description,
+                ),
+            )
+            burn_etiology_id = cursor.lastrowid
+            row = connection.execute(
+                "SELECT * FROM burn_etiology WHERE id = ?",
+                (burn_etiology_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid burn etiology data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Burn etiology created but could not be read back")
+    return dict(row)
+
+
+@app.put("/burn-etiologies/{burn_etiology_id}", tags=["burn_etiologies"], response_model=BurnEtiologyRead)
+def update_burn_etiology(burn_etiology_id: int, payload: BurnEtiologyWrite) -> dict[str, Any]:
+    """Replace burn etiology editable fields by id and return the updated record."""
+    try:
+        with get_connection() as connection:
+            get_burn_etiology_or_404(connection, burn_etiology_id)
+            connection.execute(
+                """
+                UPDATE burn_etiology
+                SET name = ?,
+                    description = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    payload.name,
+                    payload.description,
+                    burn_etiology_id,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM burn_etiology WHERE id = ?",
+                (burn_etiology_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid burn etiology data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Burn etiology updated but could not be read back")
+    return dict(row)
+
+
+@app.patch("/burn-etiologies/{burn_etiology_id}", tags=["burn_etiologies"], response_model=BurnEtiologyRead)
+def patch_burn_etiology(burn_etiology_id: int, payload: BurnEtiologyPatch) -> dict[str, Any]:
+    """Partially update burn etiology fields by id and return the updated record."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {"name", "description"}
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.append(burn_etiology_id)
+
+    query = f"UPDATE burn_etiology SET {', '.join(assignments)} WHERE id = ?"
+
+    try:
+        with get_connection() as connection:
+            get_burn_etiology_or_404(connection, burn_etiology_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                "SELECT * FROM burn_etiology WHERE id = ?",
+                (burn_etiology_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid burn etiology data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Burn etiology updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/burn-etiologies/{burn_etiology_id}", tags=["burn_etiologies"])
+def delete_burn_etiology(burn_etiology_id: int) -> dict[str, str]:
+    """Delete one burn etiology row by id when no child rows block the operation."""
+    try:
+        with get_connection() as connection:
+            get_burn_etiology_or_404(connection, burn_etiology_id)
+            connection.execute("DELETE FROM burn_etiology WHERE id = ?", (burn_etiology_id,))
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete burn etiology because it is referenced by related data: {exc}",
+        ) from exc
+
+    return {"message": f"Burn etiology {burn_etiology_id} deleted"}
