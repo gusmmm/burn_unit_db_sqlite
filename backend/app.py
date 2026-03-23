@@ -179,6 +179,43 @@ class MedicationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AntibioticCreate(BaseModel):
+    """Payload used for creating an antibiotic row."""
+
+    name: str
+    atc_code: str
+    description: str | None = None
+
+
+class AntibioticWrite(BaseModel):
+    """Payload used for replacing editable antibiotic fields."""
+
+    name: str
+    atc_code: str
+    description: str | None = None
+
+
+class AntibioticPatch(BaseModel):
+    """Payload used for partially updating antibiotic fields."""
+
+    name: str | None = None
+    atc_code: str | None = None
+    description: str | None = None
+
+
+class AntibioticRead(BaseModel):
+    """Response model representing an antibiotic row."""
+
+    id: int
+    name: str
+    atc_code: str
+    description: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ProvenanceDestinationCreate(BaseModel):
     """Payload used for creating a provenance/destination row."""
 
@@ -585,6 +622,26 @@ def get_medication_or_404(connection: sqlite3.Connection, medication_id: int) ->
     return dict(row)
 
 
+def get_antibiotic_or_404(connection: sqlite3.Connection, antibiotic_id: int) -> dict[str, Any]:
+    """Fetch an antibiotic by id or raise 404 if not found."""
+    row = connection.execute(
+        """
+        SELECT id,
+               name,
+               atc_code,
+               description,
+               created_at,
+               updated_at
+        FROM antibiotics
+        WHERE id = ?
+        """,
+        (antibiotic_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Antibiotic not found")
+    return dict(row)
+
+
 def get_patient_medication_or_404(
     connection: sqlite3.Connection,
     patient_id: int,
@@ -725,7 +782,8 @@ def read_root() -> dict[str, str]:
         "message": "Burn Unit Database API is running.",
         "endpoints": (
             "/patients, /addresses, /pathologies, /patient-pathologies, /medications, "
-            "/patient-medications, /provenance-destinations, /burn-etiologies, /burn-unit-cases"
+            "/patient-medications, /provenance-destinations, /burn-etiologies, /burn-unit-cases, "
+            "/infections, /antibiotics"
         ),
     }
 
@@ -1200,6 +1258,178 @@ def delete_medication(medication_id: int) -> dict[str, str]:
         ) from exc
 
     return {"message": f"Medication {medication_id} deleted"}
+
+
+@app.get("/antibiotics", tags=["antibiotics"], response_model=list[AntibioticRead])
+def get_antibiotics() -> list[dict[str, Any]]:
+    """Return every antibiotic row from the antibiotics table."""
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id,
+                   name,
+                   atc_code,
+                   description,
+                   created_at,
+                   updated_at
+            FROM antibiotics
+            ORDER BY id
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.get("/antibiotics/{antibiotic_id}", tags=["antibiotics"], response_model=AntibioticRead)
+def get_antibiotic(antibiotic_id: int) -> dict[str, Any]:
+    """Return one antibiotic row by id."""
+    with get_connection() as connection:
+        return get_antibiotic_or_404(connection, antibiotic_id)
+
+
+@app.post("/antibiotics", tags=["antibiotics"], response_model=AntibioticRead, status_code=201)
+def create_antibiotic(payload: AntibioticCreate) -> dict[str, Any]:
+    """Create a new antibiotic row and return the inserted record."""
+    try:
+        with get_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO antibiotics (name, atc_code, description)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    payload.name,
+                    payload.atc_code,
+                    payload.description,
+                ),
+            )
+            antibiotic_id = cursor.lastrowid
+            row = connection.execute(
+                """
+                SELECT id,
+                       name,
+                       atc_code,
+                       description,
+                       created_at,
+                       updated_at
+                FROM antibiotics
+                WHERE id = ?
+                """,
+                (antibiotic_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid antibiotic data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Antibiotic created but could not be read back")
+    return dict(row)
+
+
+@app.put("/antibiotics/{antibiotic_id}", tags=["antibiotics"], response_model=AntibioticRead)
+def update_antibiotic(antibiotic_id: int, payload: AntibioticWrite) -> dict[str, Any]:
+    """Replace antibiotic editable fields by id and return the updated record."""
+    try:
+        with get_connection() as connection:
+            get_antibiotic_or_404(connection, antibiotic_id)
+            connection.execute(
+                """
+                UPDATE antibiotics
+                SET name = ?,
+                    atc_code = ?,
+                    description = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    payload.name,
+                    payload.atc_code,
+                    payload.description,
+                    antibiotic_id,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT id,
+                       name,
+                       atc_code,
+                       description,
+                       created_at,
+                       updated_at
+                FROM antibiotics
+                WHERE id = ?
+                """,
+                (antibiotic_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid antibiotic data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Antibiotic updated but could not be read back")
+    return dict(row)
+
+
+@app.patch("/antibiotics/{antibiotic_id}", tags=["antibiotics"], response_model=AntibioticRead)
+def patch_antibiotic(antibiotic_id: int, payload: AntibioticPatch) -> dict[str, Any]:
+    """Partially update antibiotic fields by id and return the updated record."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {"name", "atc_code", "description"}
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.append(antibiotic_id)
+
+    query = f"UPDATE antibiotics SET {', '.join(assignments)} WHERE id = ?"
+
+    try:
+        with get_connection() as connection:
+            get_antibiotic_or_404(connection, antibiotic_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                """
+                SELECT id,
+                       name,
+                       atc_code,
+                       description,
+                       created_at,
+                       updated_at
+                FROM antibiotics
+                WHERE id = ?
+                """,
+                (antibiotic_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid antibiotic data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Antibiotic updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/antibiotics/{antibiotic_id}", tags=["antibiotics"])
+def delete_antibiotic(antibiotic_id: int) -> dict[str, str]:
+    """Delete one antibiotic by id when no child rows block the operation."""
+    try:
+        with get_connection() as connection:
+            get_antibiotic_or_404(connection, antibiotic_id)
+            connection.execute("DELETE FROM antibiotics WHERE id = ?", (antibiotic_id,))
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete antibiotic because it is referenced by related data: {exc}",
+        ) from exc
+
+    return {"message": f"Antibiotic {antibiotic_id} deleted"}
 
 
 @app.get("/patient-pathologies", tags=["patient_pathologies"])

@@ -189,7 +189,29 @@ CREATE TABLE IF NOT EXISTS case_infections (
     FOREIGN KEY (infection_id) REFERENCES infections(id)
 );
 -- Table: antibiotics
+CREATE TABLE IF NOT EXISTS antibiotics (
+    id INTEGER PRIMARY KEY, 
+    atc_code TEXT NOT NULL,--atc code
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 -- Table: case_antibiotics
+CREATE TABLE IF NOT EXISTS case_antibiotics (
+    case_id INTEGER NOT NULL,
+    antibiotic_id INTEGER NOT NULL,
+    indication INTEGER, --foreign key to table infections (indication for antibiotic use)
+    date_started DATE,
+    date_stopped DATE,
+    note TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (case_id, antibiotic_id),
+    FOREIGN KEY (case_id) REFERENCES burn_unit_cases(id),
+    FOREIGN KEY (antibiotic_id) REFERENCES antibiotics(id),
+    FOREIGN KEY (indication) REFERENCES infections(id)
+);
 -- Table: microbiology
 -- Table: case_microbiology
 -- Table: procedures

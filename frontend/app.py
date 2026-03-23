@@ -232,6 +232,15 @@ def load_medications() -> list[dict[str, Any]]:
 
 
 @st.cache_data(ttl=5)
+def load_antibiotics() -> list[dict[str, Any]]:
+    """Load all antibiotics from API."""
+    status, data = request_json("GET", "/antibiotics")
+    if status != 200:
+        raise RuntimeError(f"Could not load antibiotics: {data}")
+    return data
+
+
+@st.cache_data(ttl=5)
 def load_provenance_destinations() -> list[dict[str, Any]]:
     """Load all provenance_destination rows from API."""
     status, data = request_json("GET", "/provenance-destinations")
@@ -327,6 +336,12 @@ def medication_label(medication: dict[str, Any]) -> str:
     return f"{medication.get('id')} - {medication.get('name')} (ATC: {atc_code})"
 
 
+def antibiotic_label(antibiotic: dict[str, Any]) -> str:
+    """Build human-readable antibiotic label for selectors."""
+    atc_code = antibiotic.get("atc_code") or "-"
+    return f"{antibiotic.get('id')} - {antibiotic.get('name')} (ATC: {atc_code})"
+
+
 def provenance_destination_label(item: dict[str, Any]) -> str:
     """Build human-readable provenance/destination label for selectors."""
     type_value = item.get("type") or "-"
@@ -383,6 +398,7 @@ def refresh_data() -> None:
     load_patient_pathologies.clear()
     load_patient_medications.clear()
     load_medications.clear()
+    load_antibiotics.clear()
     load_provenance_destinations.clear()
     load_burn_etiologies.clear()
     load_burn_unit_cases.clear()
@@ -1088,6 +1104,199 @@ def medications_tab() -> None:
 
     render_medications_overview(medications)
     render_medication_crud_workspace(medications)
+
+
+def render_antibiotics_overview(antibiotics: list[dict[str, Any]]) -> None:
+    """Render compact overview and antibiotic list."""
+    cols = st.columns([2, 1])
+    with cols[0]:
+        st.markdown(f"<span class='ui-badge'>Antibiotics: {len(antibiotics)}</span>", unsafe_allow_html=True)
+        st.markdown("<span class='ui-badge'>Operations: GET, POST, PUT, PATCH, DELETE</span>", unsafe_allow_html=True)
+    with cols[1]:
+        if st.button("Refresh now", width="stretch", key="refresh_antibiotics"):
+            refresh_data()
+
+    card_open(compact=True)
+    section_title("Current Antibiotics")
+    if antibiotics:
+        st.dataframe(antibiotics, width="stretch", hide_index=True)
+    else:
+        st.info("No antibiotics available yet.")
+    card_close()
+
+
+def render_antibiotic_create_tab() -> None:
+    """Render create antibiotic operation."""
+    with st.form("create_antibiotic_form"):
+        name = st.text_input("Name", placeholder="Antibiotic name")
+        atc_code = st.text_input("ATC code", placeholder="ATC code")
+        description = st.text_area("Description", placeholder="Optional description")
+        submitted = st.form_submit_button("Create antibiotic", width="stretch")
+
+        if submitted:
+            payload = {
+                "name": name.strip(),
+                "atc_code": atc_code.strip(),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("POST", "/antibiotics", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_antibiotic_read_tab(antibiotics: list[dict[str, Any]]) -> None:
+    """Render read single antibiotic operation."""
+    if not antibiotics:
+        st.info("Create at least one antibiotic to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Select antibiotic",
+        options=antibiotics,
+        format_func=antibiotic_label,
+        key="read_antibiotic_select",
+    )
+    if st.button("Fetch antibiotic", width="stretch"):
+        status_code, data = request_json("GET", f"/antibiotics/{selected['id']}")
+        show_api_result(status_code, data)
+
+
+def render_antibiotic_put_tab(antibiotics: list[dict[str, Any]]) -> None:
+    """Render full replace antibiotic operation."""
+    if not antibiotics:
+        st.info("Create at least one antibiotic to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Antibiotic to replace",
+        options=antibiotics,
+        format_func=antibiotic_label,
+        key="put_antibiotic_select",
+    )
+
+    with st.form("put_antibiotic_form"):
+        name = st.text_input("Name", value=str(selected.get("name", "")))
+        atc_code = st.text_input("ATC code", value=str(selected.get("atc_code") or ""))
+        description = st.text_area("Description", value=str(selected.get("description") or ""))
+        submitted = st.form_submit_button("Replace antibiotic", width="stretch")
+
+        if submitted:
+            payload = {
+                "name": name.strip(),
+                "atc_code": atc_code.strip(),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("PUT", f"/antibiotics/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_antibiotic_patch_tab(antibiotics: list[dict[str, Any]]) -> None:
+    """Render partial update antibiotic operation."""
+    if not antibiotics:
+        st.info("Create at least one antibiotic to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Antibiotic to patch",
+        options=antibiotics,
+        format_func=antibiotic_label,
+        key="patch_antibiotic_select",
+    )
+
+    with st.form("patch_antibiotic_form"):
+        use_name = st.checkbox("Update name", key="patch_antibiotic_use_name")
+        patch_name = st.text_input("Name", value=str(selected.get("name", "")), key="patch_antibiotic_name")
+
+        use_atc_code = st.checkbox("Update ATC code", key="patch_antibiotic_use_atc_code")
+        patch_atc_code = st.text_input(
+            "ATC code",
+            value=str(selected.get("atc_code") or ""),
+            key="patch_antibiotic_atc_code",
+        )
+
+        use_description = st.checkbox("Update description", key="patch_antibiotic_use_description")
+        patch_description = st.text_area(
+            "Description",
+            value=str(selected.get("description") or ""),
+            key="patch_antibiotic_description",
+        )
+
+        submitted = st.form_submit_button("Apply patch", width="stretch")
+
+        if submitted:
+            payload: dict[str, Any] = {}
+            if use_name:
+                payload["name"] = patch_name.strip()
+            if use_atc_code:
+                payload["atc_code"] = patch_atc_code.strip()
+            if use_description:
+                payload["description"] = optional_text(patch_description)
+
+            status_code, data = request_json("PATCH", f"/antibiotics/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_antibiotic_delete_tab(antibiotics: list[dict[str, Any]]) -> None:
+    """Render delete antibiotic operation."""
+    if not antibiotics:
+        st.info("Create at least one antibiotic to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Antibiotic to delete",
+        options=antibiotics,
+        format_func=antibiotic_label,
+        key="delete_antibiotic_select",
+    )
+    confirm_delete = st.checkbox(
+        "I understand this action cannot be undone",
+        key="delete_antibiotic_confirm",
+    )
+    if st.button("Delete antibiotic", type="primary", disabled=not confirm_delete, width="stretch"):
+        status_code, data = request_json("DELETE", f"/antibiotics/{selected['id']}")
+        show_api_result(status_code, data)
+        if 200 <= status_code < 300:
+            refresh_data()
+
+
+def render_antibiotic_crud_workspace(antibiotics: list[dict[str, Any]]) -> None:
+    """Render antibiotic CRUD operations in compact tabs."""
+    card_open()
+    section_title("Antibiotics CRUD Workspace")
+    op_tabs = st.tabs(["Create (POST)", "Read One (GET)", "Replace (PUT)", "Patch (PATCH)", "Delete (DELETE)"])
+
+    with op_tabs[0]:
+        render_antibiotic_create_tab()
+    with op_tabs[1]:
+        render_antibiotic_read_tab(antibiotics)
+    with op_tabs[2]:
+        render_antibiotic_put_tab(antibiotics)
+    with op_tabs[3]:
+        render_antibiotic_patch_tab(antibiotics)
+    with op_tabs[4]:
+        render_antibiotic_delete_tab(antibiotics)
+
+    card_close()
+
+
+def antibiotics_tab() -> None:
+    """Render antibiotics management UI."""
+    st.subheader("Antibiotics Management")
+    st.caption(f"Backend API: {API_BASE_URL}")
+
+    try:
+        antibiotics = load_antibiotics()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+
+    render_antibiotics_overview(antibiotics)
+    render_antibiotic_crud_workspace(antibiotics)
 
 
 def render_provenance_destinations_overview(
@@ -2236,7 +2445,7 @@ def render_case_burns_section(selected_case: dict[str, Any]) -> None:
                 "Location": f"[{cb.get('anatomic_location_id')}] {l_name}",
                 "Note": cb.get("note", "")
             })
-        st.dataframe(enriched_cbs, hide_index=True, use_container_width=True)
+        st.dataframe(enriched_cbs, hide_index=True, width="stretch")
 
     op_tabs = st.tabs(["Add", "Edit", "Delete"])
     
@@ -2348,7 +2557,7 @@ def render_case_associated_injuries_section(selected_case: dict[str, Any]) -> No
                 "Date of Injury": inj.get("date_of_injury", ""),
                 "Note": inj.get("note", "")
             })
-        st.dataframe(enriched_injuries, hide_index=True, use_container_width=True)
+        st.dataframe(enriched_injuries, hide_index=True, width="stretch")
 
     op_tabs = st.tabs(["Add", "Edit", "Delete"])
     
@@ -3244,6 +3453,7 @@ def main() -> None:
             "Burn Unit Cases",
             "Pathologies",
             "Medications",
+            "Antibiotics",
             "Provenance/Destination",
             "Burn Etiologies",
             "Infections",
@@ -3262,10 +3472,12 @@ def main() -> None:
     with tabs[5]:
         medications_tab()
     with tabs[6]:
-        provenance_destinations_tab()
+        antibiotics_tab()
     with tabs[7]:
-        burn_etiologies_tab()
+        provenance_destinations_tab()
     with tabs[8]:
+        burn_etiologies_tab()
+    with tabs[9]:
         infections_tab()
 
 
