@@ -432,6 +432,41 @@ class PatientMedicationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class InfectionCreate(BaseModel):
+    """Payload used for creating an infection row with explicit id."""
+    
+    id: int
+    name: str
+    description: str | None = None
+
+
+class InfectionWrite(BaseModel):
+    """Payload used for replacing editable infection fields."""
+
+    name: str
+    description: str | None = None
+
+
+class InfectionPatch(BaseModel):
+    """Payload used for partially updating infection fields."""
+
+    name: str | None = None
+    description: str | None = None
+
+
+class InfectionRead(BaseModel):
+    """Response model representing an infection row."""
+
+    id: int
+    name: str
+    description: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+
 def get_connection() -> sqlite3.Connection:
     """Return a SQLite connection configured to expose rows as dictionaries."""
     connection = sqlite3.connect(DATABASE_PATH)
@@ -595,6 +630,17 @@ def get_case_burns_or_404(
     return dict(row)
 
 
+def get_infection_or_404(connection: sqlite3.Connection, infection_id: int) -> dict[str, Any]:
+    """Fetch an infection by id or raise 404 if not found."""
+    row = connection.execute(
+        "SELECT * FROM infections WHERE id = ?",
+        (infection_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Infection not found")
+    return dict(row)
+
+
 def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
     """Fetch all rows from the provided table name in ascending id order when available."""
     query = f"SELECT * FROM {table_name}"
@@ -606,6 +652,7 @@ def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
         "provenance_destination",
         "burn_etiology",
         "burn_unit_cases",
+        "infections",
     }:
         query += " ORDER BY id"
 
@@ -2110,3 +2157,91 @@ def get_anatomic_locations() -> list[dict[str, Any]]:
     with get_connection() as connection:
         rows = connection.execute("SELECT * FROM anatomic_locations ORDER BY id").fetchall()
     return [dict(row) for row in rows]
+
+@app.get("/infections", tags=["infections"], response_model=list[InfectionRead])
+def get_infections() -> list[dict[str, Any]]:
+    """Return every infection row from the infections table."""
+    return fetch_all_rows("infections")
+
+
+@app.get("/infections/{infection_id}", tags=["infections"], response_model=InfectionRead)
+def get_infection(infection_id: int) -> dict[str, Any]:
+    """Return one infection row by id."""
+    with get_connection() as connection:
+        return get_infection_or_404(connection, infection_id)
+
+
+@app.post("/infections", tags=["infections"], response_model=InfectionRead, status_code=201)
+def create_infection(payload: InfectionCreate) -> dict[str, Any]:
+    """Create a new infection row and return the inserted record."""
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO infections (id, name, description)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    payload.id,
+                    payload.name,
+                    payload.description,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM infections WHERE id = ?",
+                (payload.id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid infection data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Infection created but could not be read back")
+    return dict(row)
+
+
+@app.put("/infections/{infection_id}", tags=["infections"], response_model=InfectionRead)
+def update_infection(infection_id: int, payload: InfectionWrite) -> dict[str, Any]:
+    """Replace infection editable fields by id and return the updated record."""
+    try:
+        with get_connection() as connection:
+            get_infection_or_404(connection, infection_id)
+            connection.execute(
+                """
+                UPDATE infections
+                SET name = ?,
+                    description = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    payload.name,
+                    payload.description,
+                    infection_id,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM infections WHERE id = ?",
+                (infection_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid infection data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Infection updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/infections/{infection_id}", tags=["infections"])
+def delete_infection(infection_id: int) -> dict[str, str]:
+    """Delete one infection by id when no child rows block the operation."""
+    try:
+        with get_connection() as connection:
+            get_infection_or_404(connection, infection_id)
+            connection.execute("DELETE FROM infections WHERE id = ?", (infection_id,))
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete infection because it is referenced by related data: {exc}",
+        ) from exc
+
+    return {"message": f"Infection {infection_id} deleted"}

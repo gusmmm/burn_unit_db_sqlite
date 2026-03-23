@@ -166,10 +166,28 @@ CREATE TABLE IF NOT EXISTS case_associated_injuries (
     FOREIGN KEY (case_id) REFERENCES burn_unit_cases(id),
     FOREIGN KEY (injury_id) REFERENCES pathologies(id)
 );
--- Table: interventions
--- Table: case_interventions
+
 -- Table: infections
+CREATE TABLE IF NOT EXISTS infections (
+    id INTEGER PRIMARY KEY, -- Unique identifier for each infection type SNOMED-CT Concept ID
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Table: case_infections
+CREATE TABLE IF NOT EXISTS case_infections (
+    case_id INTEGER NOT NULL,
+    infection_id INTEGER NOT NULL,
+    date_of_infection DATE,
+    note TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (case_id, infection_id),
+    FOREIGN KEY (case_id) REFERENCES burn_unit_cases(id),
+    FOREIGN KEY (infection_id) REFERENCES infections(id)
+);
 -- Table: antibiotics
 -- Table: case_antibiotics
 -- Table: microbiology
@@ -178,3 +196,5 @@ CREATE TABLE IF NOT EXISTS case_associated_injuries (
 -- Table: case_procedures
 -- Table: complications
 -- Table: case_complications
+-- Table: interventions
+-- Table: case_interventions

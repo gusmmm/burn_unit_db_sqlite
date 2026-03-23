@@ -386,6 +386,7 @@ def refresh_data() -> None:
     load_provenance_destinations.clear()
     load_burn_etiologies.clear()
     load_burn_unit_cases.clear()
+    load_infections.clear()
     st.rerun()
 
 
@@ -2909,6 +2910,162 @@ def patient_overview_tab() -> None:
     render_future_associations_placeholder()
 
 
+
+@st.cache_data(ttl=5)
+def load_infections() -> list[dict[str, Any]]:
+    """Load all infections from API."""
+    status, data = request_json("GET", "/infections")
+    if status != 200:
+        raise RuntimeError(f"Could not load infections: {data}")
+    return data
+
+
+def infection_label(infection: dict[str, Any]) -> str:
+    """Format an infection for display in selectboxes."""
+    return f"{infection['name']} ({infection['id']})"
+
+
+def render_infections_overview(infections: list[dict[str, Any]]) -> None:
+    """Render compact overview and infection list."""
+    cols = st.columns([2, 1])
+    with cols[0]:
+        st.markdown(f"<span class='ui-badge'>Infections: {len(infections)}</span>", unsafe_allow_html=True)
+        st.markdown("<span class='ui-badge'>Operations: GET, POST, PUT, DELETE</span>", unsafe_allow_html=True)
+    with cols[1]:
+        if st.button("Refresh now", width="stretch", key="refresh_infections"):
+            refresh_data()
+
+    card_open(compact=True)
+    section_title("Current Infections")
+    if infections:
+        st.dataframe(infections, width="stretch", hide_index=True)
+    else:
+        st.info("No infections available yet.")
+    card_close()
+
+
+def render_infection_create_tab() -> None:
+    """Render create infection operation."""
+    with st.form("create_infection_form"):
+        infection_id = st.number_input("Infection ID", min_value=1, step=1, format="%d")
+        name = st.text_input("Name", placeholder="Infection name")
+        description = st.text_area("Description", placeholder="Optional description")
+        submitted = st.form_submit_button("Create infection", width="stretch")
+
+        if submitted:
+            payload = {
+                "id": int(infection_id),
+                "name": name.strip(),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("POST", "/infections", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_infection_read_tab(infections: list[dict[str, Any]]) -> None:
+    """Render read single infection operation."""
+    if not infections:
+        st.info("Create at least one infection to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Select infection",
+        options=infections,
+        format_func=infection_label,
+        key="read_infection_select",
+    )
+    if st.button("Fetch infection", width="stretch"):
+        status_code, data = request_json("GET", f"/infections/{selected['id']}")
+        show_api_result(status_code, data)
+
+
+def render_infection_put_tab(infections: list[dict[str, Any]]) -> None:
+    """Render full replace infection operation."""
+    if not infections:
+        st.info("Create at least one infection to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Infection to replace",
+        options=infections,
+        format_func=infection_label,
+        key="put_infection_select",
+    )
+
+    with st.form("put_infection_form"):
+        name = st.text_input("Name", value=str(selected.get("name", "")))
+        description = st.text_area("Description", value=str(selected.get("description") or ""))
+        submitted = st.form_submit_button("Replace infection", width="stretch")
+
+        if submitted:
+            payload = {
+                "name": name.strip(),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("PUT", f"/infections/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_infection_delete_tab(infections: list[dict[str, Any]]) -> None:
+    """Render delete infection operation."""
+    if not infections:
+        st.info("Create at least one infection to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Infection to delete",
+        options=infections,
+        format_func=infection_label,
+        key="delete_infection_select",
+    )
+    confirm_delete = st.checkbox(
+        "I understand this action cannot be undone",
+        key="delete_infection_confirm",
+    )
+    if st.button("Delete infection", type="primary", disabled=not confirm_delete, width="stretch"):
+        status_code, data = request_json("DELETE", f"/infections/{selected['id']}")
+        show_api_result(status_code, data)
+        if 200 <= status_code < 300:
+            refresh_data()
+
+
+def render_infections_crud_workspace(infections: list[dict[str, Any]]) -> None:
+    """Render infection CRUD operations in compact tabs."""
+    card_open()
+    section_title("Infections CRUD Workspace")
+    op_tabs = st.tabs(["Create (POST)", "Read One (GET)", "Replace (PUT)", "Delete (DELETE)"])
+
+    with op_tabs[0]:
+        render_infection_create_tab()
+    with op_tabs[1]:
+        render_infection_read_tab(infections)
+    with op_tabs[2]:
+        render_infection_put_tab(infections)
+    with op_tabs[3]:
+        render_infection_delete_tab(infections)
+
+    card_close()
+
+
+def infections_tab() -> None:
+    """Render infections management UI."""
+    st.subheader("Infections Management")
+    st.caption(f"Backend API: {API_BASE_URL}")
+
+    try:
+        infections = load_infections()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+
+    render_infections_overview(infections)
+    render_infections_crud_workspace(infections)
+
+
 def main() -> None:
     """Run the Streamlit application."""
     st.set_page_config(page_title="Burn Unit UI", layout="wide")
@@ -2927,6 +3084,7 @@ def main() -> None:
             "Medications",
             "Provenance/Destination",
             "Burn Etiologies",
+            "Infections",
         ]
     )
     with tabs[0]:
@@ -2945,6 +3103,8 @@ def main() -> None:
         provenance_destinations_tab()
     with tabs[7]:
         burn_etiologies_tab()
+    with tabs[8]:
+        infections_tab()
 
 
 if __name__ == "__main__":
