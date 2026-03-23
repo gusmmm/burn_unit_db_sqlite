@@ -387,6 +387,7 @@ def refresh_data() -> None:
     load_burn_etiologies.clear()
     load_burn_unit_cases.clear()
     load_infections.clear()
+    load_case_infections.clear()
     st.rerun()
 
 
@@ -2180,6 +2181,16 @@ def load_case_burns(case_id: int | None = None) -> list[dict[str, Any]]:
         raise RuntimeError(f"Could not load case burns: {data}")
     return data
 
+
+@st.cache_data(ttl=5)
+def load_case_infections(case_id: int | None = None) -> list[dict[str, Any]]:
+    """Load case_infections from API optionally filtered by case_id."""
+    path = f"/case-infections?case_id={case_id}" if case_id is not None else "/case-infections"
+    status, data = request_json("GET", path)
+    if status != 200:
+        raise RuntimeError(f"Could not load case infections: {data}")
+    return data
+
 @st.cache_data(ttl=5)
 def load_burn_depths() -> list[dict[str, Any]]:
     status, data = request_json("GET", "/burn-depths")
@@ -2426,13 +2437,163 @@ def render_case_associated_injuries_section(selected_case: dict[str, Any]) -> No
                         
     card_close()
 
+
+def render_case_infections_section(selected_case: dict[str, Any]) -> None:
+    """Render case-specific CRUD for case_infections linked to selected burn unit case."""
+    card_open()
+    section_title("Case Infections")
+    case_id = selected_case["id"]
+    try:
+        case_infections = load_case_infections(case_id=case_id)
+        infections = load_infections()
+    except Exception as exc:
+        st.error(str(exc))
+        card_close()
+        return
+
+    infections_by_id = {row["id"]: row for row in infections if row.get("id") is not None}
+
+    if not case_infections:
+        st.info("No infections recorded for this case.")
+    else:
+        enriched_rows: list[dict[str, Any]] = []
+        for row in case_infections:
+            infection = infections_by_id.get(row.get("infection_id"), {})
+            enriched_rows.append(
+                {
+                    "Infection": f"[{row.get('infection_id')}] {infection.get('name', 'Unknown infection')}",
+                    "Date of infection": row.get("date_of_infection") or "",
+                    "Note": row.get("note") or "",
+                }
+            )
+        st.dataframe(enriched_rows, hide_index=True, width="stretch")
+
+    op_tabs = st.tabs(["Add", "Edit", "Delete"])
+
+    with op_tabs[0]:
+        with st.form("create_case_infection_form"):
+            infection_options = [
+                {"id": row["id"], "label": f"{row['id']} - {row.get('name', 'Unnamed infection')}"}
+                for row in infections
+                if row.get("id") is not None
+            ]
+            if not infection_options:
+                st.info("No infections available. Create infections first in the Infections tab.")
+            else:
+                selected_infection = st.selectbox(
+                    "Infection",
+                    options=infection_options,
+                    format_func=lambda option: option["label"],
+                )
+                date_of_infection = st.text_input("Date of infection (YYYY-MM-DD)", placeholder="Optional")
+                note = st.text_area("Note", placeholder="Optional")
+
+                if st.form_submit_button("Add Case Infection"):
+                    try:
+                        parsed_date = parse_optional_date_input(date_of_infection)
+                    except ValueError:
+                        st.error("Date of infection must use YYYY-MM-DD format.")
+                    else:
+                        payload = {
+                            "case_id": case_id,
+                            "infection_id": selected_infection["id"],
+                            "date_of_infection": parsed_date,
+                            "note": optional_text(note),
+                        }
+                        status_code, data = request_json("POST", "/case-infections", payload)
+                        show_api_result(status_code, data)
+                        if 200 <= status_code < 300:
+                            load_case_infections.clear()
+                            st.rerun()
+
+    with op_tabs[1]:
+        if case_infections:
+            with st.form("edit_case_infection_form"):
+                infection_assoc_options = [
+                    {
+                        "infection_id": row["infection_id"],
+                        "label": (
+                            f"{row['infection_id']} - "
+                            f"{infections_by_id.get(row['infection_id'], {}).get('name', 'Unknown infection')}"
+                        ),
+                        "date_of_infection": row.get("date_of_infection") or "",
+                        "note": row.get("note") or "",
+                    }
+                    for row in case_infections
+                ]
+
+                selected_assoc = st.selectbox(
+                    "Select case infection",
+                    options=infection_assoc_options,
+                    format_func=lambda option: option["label"],
+                )
+                patch_date_of_infection = st.text_input(
+                    "Update date of infection (YYYY-MM-DD)",
+                    value=selected_assoc.get("date_of_infection", ""),
+                )
+                patch_note = st.text_area("Update note", value=selected_assoc.get("note", ""))
+
+                if st.form_submit_button("Update Case Infection"):
+                    try:
+                        parsed_date = parse_optional_date_input(patch_date_of_infection)
+                    except ValueError:
+                        st.error("Date of infection must use YYYY-MM-DD format.")
+                    else:
+                        payload = {
+                            "date_of_infection": parsed_date,
+                            "note": optional_text(patch_note),
+                        }
+                        target_infection_id = selected_assoc["infection_id"]
+                        status_code, data = request_json(
+                            "PATCH",
+                            f"/case-infections/{case_id}/{target_infection_id}",
+                            payload,
+                        )
+                        show_api_result(status_code, data)
+                        if 200 <= status_code < 300:
+                            load_case_infections.clear()
+                            st.rerun()
+
+    with op_tabs[2]:
+        if case_infections:
+            with st.form("delete_case_infection_form"):
+                infection_assoc_options = [
+                    {
+                        "infection_id": row["infection_id"],
+                        "label": (
+                            f"{row['infection_id']} - "
+                            f"{infections_by_id.get(row['infection_id'], {}).get('name', 'Unknown infection')}"
+                        ),
+                    }
+                    for row in case_infections
+                ]
+                selected_assoc = st.selectbox(
+                    "Select case infection to delete",
+                    options=infection_assoc_options,
+                    format_func=lambda option: option["label"],
+                    key="delete_case_infection_select",
+                )
+
+                if st.form_submit_button("Delete Case Infection", type="primary"):
+                    target_infection_id = selected_assoc["infection_id"]
+                    status_code, data = request_json(
+                        "DELETE",
+                        f"/case-infections/{case_id}/{target_infection_id}",
+                    )
+                    show_api_result(status_code, data)
+                    if 200 <= status_code < 300:
+                        load_case_infections.clear()
+                        st.rerun()
+
+    card_close()
+
 def render_burn_unit_case_future_associations_placeholder() -> None:
     """Reserve space for future burn-case association tables."""
     card_open(compact=True)
     section_title("Future Burn Case Modules")
     st.info(
         "This Burn Unit Case Overview is prepared for future association tables: "
-        "injuries, interventions, infections, antibiotics, microbiology, and complications."
+        "interventions, antibiotics, microbiology, and complications."
     )
     card_close()
 
@@ -2497,6 +2658,7 @@ def burn_unit_case_overview_tab() -> None:
 
     render_case_burns_section(selected_case)
     render_case_associated_injuries_section(selected_case)
+    render_case_infections_section(selected_case)
 
     render_burn_unit_case_future_associations_placeholder()
 
