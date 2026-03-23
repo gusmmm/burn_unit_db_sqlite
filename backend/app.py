@@ -342,6 +342,37 @@ class BurnUnitCaseRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CaseBurnsCreate(BaseModel):
+    """Payload used for creating a case_burns association row."""
+
+    case_id: int
+    burn_depth_id: int
+    anatomic_location_id: int
+    note: str | None = None
+
+
+class CaseBurnsPatch(BaseModel):
+    """Payload used for partially updating a case_burns association row."""
+
+    case_id: int | None = None
+    burn_depth_id: int | None = None
+    anatomic_location_id: int | None = None
+    note: str | None = None
+
+
+class CaseBurnsRead(BaseModel):
+    """Response model representing a case_burns association row."""
+
+    case_id: int
+    burn_depth_id: int
+    anatomic_location_id: int
+    note: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PatientMedicationCreate(BaseModel):
     """Payload used for creating a patient-medication association row."""
 
@@ -510,6 +541,27 @@ def get_burn_unit_case_or_404(connection: sqlite3.Connection, burn_unit_case_id:
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Burn unit case not found")
+    return dict(row)
+
+
+
+def get_case_burns_or_404(
+    connection: sqlite3.Connection,
+    case_id: int,
+    burn_depth_id: int,
+    anatomic_location_id: int,
+) -> dict[str, Any]:
+    """Fetch a case_burns association row by composite key or raise 404 if not found."""
+    row = connection.execute(
+        """
+        SELECT *
+        FROM case_burns
+        WHERE case_id = ? AND burn_depth_id = ? AND anatomic_location_id = ?
+        """,
+        (case_id, burn_depth_id, anatomic_location_id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Case burn association not found")
     return dict(row)
 
 
@@ -1757,3 +1809,167 @@ def delete_burn_unit_case(burn_unit_case_id: int) -> dict[str, str]:
         ) from exc
 
     return {"message": f"Burn unit case {burn_unit_case_id} deleted"}
+
+
+@app.get("/case-burns", tags=["case_burns"])
+def get_case_burns(case_id: int | None = None) -> list[dict[str, Any]]:
+    """Return case_burns optionally filtered by case_id."""
+    with get_connection() as connection:
+        if case_id is not None:
+            rows = connection.execute(
+                """
+                SELECT * FROM case_burns
+                WHERE case_id = ?
+                ORDER BY case_id, burn_depth_id, anatomic_location_id
+                """,
+                (case_id,)
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT * FROM case_burns ORDER BY case_id, burn_depth_id, anatomic_location_id"
+            ).fetchall()
+    return [dict(row) for row in rows]
+
+@app.get(
+    "/case-burns/{case_id}/{burn_depth_id}/{anatomic_location_id}",
+    tags=["case_burns"],
+    response_model=CaseBurnsRead,
+)
+def get_case_burn_association(
+    case_id: int, burn_depth_id: int, anatomic_location_id: int
+) -> dict[str, Any]:
+    """Return one case_burns association by composite key."""
+    with get_connection() as connection:
+        return get_case_burns_or_404(connection, case_id, burn_depth_id, anatomic_location_id)
+
+@app.post(
+    "/case-burns",
+    tags=["case_burns"],
+    response_model=CaseBurnsRead,
+    status_code=201,
+)
+def create_case_burn_association(payload: CaseBurnsCreate) -> dict[str, Any]:
+    """Create a case_burns association and return the inserted row."""
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO case_burns (case_id, burn_depth_id, anatomic_location_id, note)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    payload.case_id,
+                    payload.burn_depth_id,
+                    payload.anatomic_location_id,
+                    payload.note,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT *
+                FROM case_burns
+                WHERE case_id = ? AND burn_depth_id = ? AND anatomic_location_id = ?
+                """,
+                (payload.case_id, payload.burn_depth_id, payload.anatomic_location_id),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid case_burns data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Association created but could not be read back")
+    return dict(row)
+
+@app.patch(
+    "/case-burns/{case_id}/{burn_depth_id}/{anatomic_location_id}",
+    tags=["case_burns"],
+    response_model=CaseBurnsRead,
+)
+def patch_case_burn_association(
+    case_id: int,
+    burn_depth_id: int,
+    anatomic_location_id: int,
+    payload: CaseBurnsPatch,
+) -> dict[str, Any]:
+    """Partially update an association row by composite key."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {"case_id", "burn_depth_id", "anatomic_location_id", "note"}
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.extend([case_id, burn_depth_id, anatomic_location_id])
+    
+    query = (
+        f"UPDATE case_burns SET {', '.join(assignments)} "
+        "WHERE case_id = ? AND burn_depth_id = ? AND anatomic_location_id = ?"
+    )
+
+    new_case_id = updates.get("case_id", case_id)
+    new_burn_depth_id = updates.get("burn_depth_id", burn_depth_id)
+    new_anatomic_location_id = updates.get("anatomic_location_id", anatomic_location_id)
+
+    try:
+        with get_connection() as connection:
+            get_case_burns_or_404(connection, case_id, burn_depth_id, anatomic_location_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                """
+                SELECT *
+                FROM case_burns
+                WHERE case_id = ? AND burn_depth_id = ? AND anatomic_location_id = ?
+                """,
+                (new_case_id, new_burn_depth_id, new_anatomic_location_id),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid case_burns data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Association updated but could not be read back")
+    return dict(row)
+
+@app.delete("/case-burns/{case_id}/{burn_depth_id}/{anatomic_location_id}", tags=["case_burns"])
+def delete_case_burn_association(case_id: int, burn_depth_id: int, anatomic_location_id: int) -> dict[str, str]:
+    """Delete one case_burns association row by composite key."""
+    with get_connection() as connection:
+        get_case_burns_or_404(connection, case_id, burn_depth_id, anatomic_location_id)
+        connection.execute(
+            "DELETE FROM case_burns WHERE case_id = ? AND burn_depth_id = ? AND anatomic_location_id = ?",
+            (case_id, burn_depth_id, anatomic_location_id),
+        )
+
+    return {"message": f"Association ({case_id}, {burn_depth_id}, {anatomic_location_id}) deleted"}
+
+
+class BurnDepthRead(BaseModel):
+    id: int
+    depth_new: str
+    depth_old: str | None = None
+    description: str | None = None
+
+class AnatomicLocationRead(BaseModel):
+    id: int
+    name: str
+    description: str | None = None
+
+@app.get("/burn-depths", tags=["burn_depth"], response_model=list[BurnDepthRead])
+def get_burn_depths() -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        rows = connection.execute("SELECT * FROM burn_depth ORDER BY id").fetchall()
+    return [dict(row) for row in rows]
+
+@app.get("/anatomic-locations", tags=["anatomic_locations"], response_model=list[AnatomicLocationRead])
+def get_anatomic_locations() -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        rows = connection.execute("SELECT * FROM anatomic_locations ORDER BY id").fetchall()
+    return [dict(row) for row in rows]

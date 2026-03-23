@@ -2156,6 +2156,144 @@ def burn_unit_cases_tab() -> None:
     )
 
 
+@st.cache_data(ttl=5)
+def load_case_burns(case_id: int | None = None) -> list[dict[str, Any]]:
+    """Load case_burns from API optionally filtered by case_id."""
+    path = f"/case-burns?case_id={case_id}" if case_id is not None else "/case-burns"
+    status, data = request_json("GET", path)
+    if status != 200:
+        raise RuntimeError(f"Could not load case burns: {data}")
+    return data
+
+@st.cache_data(ttl=5)
+def load_burn_depths() -> list[dict[str, Any]]:
+    status, data = request_json("GET", "/burn-depths")
+    if status != 200:
+        return []
+    return data
+
+@st.cache_data(ttl=5)
+def load_anatomic_locations() -> list[dict[str, Any]]:
+    status, data = request_json("GET", "/anatomic-locations")
+    if status != 200:
+        return []
+    return data
+
+
+def render_case_burns_section(selected_case: dict[str, Any]) -> None:
+    """Render the Case Burns Section linked to an open Burn Unit Case"""
+    card_open()
+    section_title("Case Burns")
+    case_id = selected_case["id"]
+    try:
+        case_burns = load_case_burns(case_id=case_id)
+        burn_depths = load_burn_depths()
+        anatomic_locations = load_anatomic_locations()
+    except Exception as e:
+        st.error(str(e))
+        card_close()
+        return
+
+    depth_by_id = {row["id"]: row for row in burn_depths}
+    loc_by_id = {row["id"]: row for row in anatomic_locations}
+
+    if not case_burns:
+        st.info("No case burns recorded for this case.")
+    else:
+        # Build enriched view for dataframe
+        enriched_cbs = []
+        for cb in case_burns:
+            d_name = depth_by_id.get(cb.get("burn_depth_id"), {}).get("depth_new", "?")
+            l_name = loc_by_id.get(cb.get("anatomic_location_id"), {}).get("name", "?")
+            enriched_cbs.append({
+                "Depth": f"[{cb.get('burn_depth_id')}] {d_name}",
+                "Location": f"[{cb.get('anatomic_location_id')}] {l_name}",
+                "Note": cb.get("note", "")
+            })
+        st.dataframe(enriched_cbs, hide_index=True, use_container_width=True)
+
+    op_tabs = st.tabs(["Add", "Edit", "Delete"])
+    
+    with op_tabs[0]:
+        with st.form("create_case_burn_form"):
+            bd_options = [{"id": d["id"], "label": f"{d['id']} - {d['depth_new']}"} for d in burn_depths]
+            loc_options = [{"id": l["id"], "label": f"{l['id']} - {l['name']}"} for l in anatomic_locations]
+            
+            if not bd_options: bd_options = [{"id": 0, "label": "No depths available"}]
+            if not loc_options: loc_options = [{"id": 0, "label": "No locations available"}]
+
+            sel_depth = st.selectbox("Burn Depth", options=bd_options, format_func=lambda x: x["label"])
+            sel_loc = st.selectbox("Anatomic Location", options=loc_options, format_func=lambda x: x["label"])
+            note = st.text_area("Note", placeholder="Optional")
+            
+            if st.form_submit_button("Add Case Burn"):
+                payload = {
+                    "case_id": case_id,
+                    "burn_depth_id": sel_depth["id"],
+                    "anatomic_location_id": sel_loc["id"],
+                    "note": optional_text(note),
+                }
+                status_code, data = request_json("POST", "/case-burns", payload)
+                show_api_result(status_code, data)
+                if 200 <= status_code < 300:
+                    load_case_burns.clear()
+                    st.rerun()
+
+    with op_tabs[1]:
+        if case_burns:
+            with st.form("edit_case_burn_form"):
+                burn_opts = []
+                for cb in case_burns:
+                    d_name = depth_by_id.get(cb.get("burn_depth_id"), {}).get("depth_new", "?")
+                    l_name = loc_by_id.get(cb.get("anatomic_location_id"), {}).get("name", "?")
+                    burn_opts.append({
+                        "depth_id": cb['burn_depth_id'],
+                        "loc_id": cb['anatomic_location_id'],
+                        "label": f"{cb['burn_depth_id']} / {cb['anatomic_location_id']} | {d_name} @ {l_name}",
+                        "note": cb.get("note", "")
+                    })
+                selected_opt = st.selectbox("Select (Depth ID / Location ID)", options=burn_opts, format_func=lambda x: x["label"])
+                
+                target_depth = selected_opt["depth_id"] if selected_opt else 1
+                target_loc = selected_opt["loc_id"] if selected_opt else 1
+                target_note = selected_opt["note"] if selected_opt else ""
+                
+                patch_note = st.text_area("Update Note", value=target_note)
+                
+                if st.form_submit_button("Update Case Burn"):
+                    payload = {"note": patch_note}
+                    status_code, data = request_json("PATCH", f"/case-burns/{case_id}/{target_depth}/{target_loc}", payload)
+                    show_api_result(status_code, data)
+                    if 200 <= status_code < 300:
+                        load_case_burns.clear()
+                        st.rerun()
+
+    with op_tabs[2]:
+        if case_burns:
+            with st.form("delete_case_burn_form"):
+                burn_opts = []
+                for cb in case_burns:
+                    d_name = depth_by_id.get(cb.get("burn_depth_id"), {}).get("depth_new", "?")
+                    l_name = loc_by_id.get(cb.get("anatomic_location_id"), {}).get("name", "?")
+                    burn_opts.append({
+                        "depth_id": cb['burn_depth_id'],
+                        "loc_id": cb['anatomic_location_id'],
+                        "label": f"{cb['burn_depth_id']} / {cb['anatomic_location_id']} | {d_name} @ {l_name}"
+                    })
+                selected_opt = st.selectbox("Select (Depth ID / Location ID)", options=burn_opts, format_func=lambda x: x["label"], key="del_cb")
+                
+                if st.form_submit_button("Delete Case Burn", type="primary"):
+                    target_depth = selected_opt["depth_id"] if selected_opt else 1
+                    target_loc = selected_opt["loc_id"] if selected_opt else 1
+                    status_code, data = request_json("DELETE", f"/case-burns/{case_id}/{target_depth}/{target_loc}")
+                    show_api_result(status_code, data)
+                    if 200 <= status_code < 300:
+                        load_case_burns.clear()
+                        st.rerun()
+                        
+    card_close()
+
+
 def render_burn_unit_case_future_associations_placeholder() -> None:
     """Reserve space for future burn-case association tables."""
     card_open(compact=True)
@@ -2224,6 +2362,8 @@ def burn_unit_case_overview_tab() -> None:
         unsafe_allow_html=True,
     )
     card_close()
+
+    render_case_burns_section(selected_case)
 
     render_burn_unit_case_future_associations_placeholder()
 
@@ -2677,3 +2817,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
