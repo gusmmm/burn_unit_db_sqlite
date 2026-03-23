@@ -121,7 +121,24 @@ CREATE TABLE IF NOT EXISTS burn_etiology (
 
 -- Table: case_associated_injuries
 -- Table: burn_depth
+CREATE TABLE IF NOT EXISTS burn_depth (
+    id INTEGER PRIMARY KEY,
+    depth_new TEXT NOT NULL,
+    depth_old TEXT,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Table: anatomic_locations
+CREATE TABLE IF NOT EXISTS anatomic_locations (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Table: case_burns
 -- Table: interventions
 -- Table: case_interventions
