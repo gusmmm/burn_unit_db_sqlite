@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS burn_etiology (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- a implementar
 -- Table: burn_depth
 CREATE TABLE IF NOT EXISTS burn_depth (
     id INTEGER PRIMARY KEY,
