@@ -3,6 +3,7 @@
 from pathlib import Path
 import sqlite3
 from typing import Any
+from datetime import date
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -371,6 +372,35 @@ class CaseBurnsRead(BaseModel):
     updated_at: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+class CaseAssociatedInjuryCreate(BaseModel):
+    """Payload used for creating a case_associated_injuries association row."""
+
+    case_id: int
+    injury_id: int
+    date_of_injury: date | None = None
+    note: str | None = None
+
+
+class CaseAssociatedInjuryPatch(BaseModel):
+    """Payload used for partially updating a case_associated_injuries association row."""
+
+    date_of_injury: date | None = None
+    note: str | None = None
+
+
+class CaseAssociatedInjuryRead(BaseModel):
+    """Response model representing a case_associated_injuries association row."""
+
+    case_id: int
+    injury_id: int
+    date_of_injury: date | None = None
+    note: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 class PatientMedicationCreate(BaseModel):
@@ -1950,6 +1980,113 @@ def delete_case_burn_association(case_id: int, burn_depth_id: int, anatomic_loca
 
     return {"message": f"Association ({case_id}, {burn_depth_id}, {anatomic_location_id}) deleted"}
 
+
+
+# ==========================================
+# CASE ASSOCIATED INJURIES (case_associated_injuries)
+# ==========================================
+
+def get_case_associated_injury_or_404(connection: sqlite3.Connection, case_id: int, injury_id: int) -> sqlite3.Row:
+    row = connection.execute(
+        "SELECT * FROM case_associated_injuries WHERE case_id = ? AND injury_id = ?",
+        (case_id, injury_id),
+    ).fetchone()
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Association with case_id={case_id} and injury_id={injury_id} not found",
+        )
+    return row
+
+@app.get("/case-associated-injuries", tags=["case_associated_injuries"], response_model=list[CaseAssociatedInjuryRead])
+def get_all_case_associated_injuries() -> list[dict[str, Any]]:
+    """Return every row from the case_associated_injuries table."""
+    return fetch_all_rows("case_associated_injuries")
+
+@app.get("/case-associated-injuries/{case_id}", tags=["case_associated_injuries"], response_model=list[CaseAssociatedInjuryRead])
+def get_case_associated_injuries_by_case(case_id: int) -> list[dict[str, Any]]:
+    """Return all case_associated_injuries rows for a particular case."""
+    with get_connection() as connection:
+        get_burn_unit_case_or_404(connection, case_id)
+        rows = connection.execute(
+            "SELECT * FROM case_associated_injuries WHERE case_id = ?", (case_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+@app.get("/case-associated-injuries/{case_id}/{injury_id}", tags=["case_associated_injuries"], response_model=CaseAssociatedInjuryRead)
+def get_case_associated_injury_single(case_id: int, injury_id: int) -> dict[str, Any]:
+    """Return one case_associated_injuries association row."""
+    with get_connection() as connection:
+        row = get_case_associated_injury_or_404(connection, case_id, injury_id)
+        return dict(row)
+
+@app.post("/case-associated-injuries", tags=["case_associated_injuries"], response_model=CaseAssociatedInjuryRead, status_code=201)
+def create_case_associated_injury(payload: CaseAssociatedInjuryCreate) -> dict[str, Any]:
+    """Create a new case_associated_injuries association row."""
+    with get_connection() as connection:
+        get_burn_unit_case_or_404(connection, payload.case_id)
+        get_pathology_or_404(connection, payload.injury_id)
+
+        existing = connection.execute(
+            "SELECT 1 FROM case_associated_injuries WHERE case_id = ? AND injury_id = ?",
+            (payload.case_id, payload.injury_id),
+        ).fetchone()
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Case associated injury association already exists for case_id={payload.case_id} and injury_id={payload.injury_id}"
+            )
+
+        connection.execute(
+            """
+            INSERT INTO case_associated_injuries (case_id, injury_id, date_of_injury, note)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                payload.case_id,
+                payload.injury_id,
+                payload.date_of_injury.isoformat() if payload.date_of_injury else None,
+                payload.note,
+            ),
+        )
+        row = get_case_associated_injury_or_404(connection, payload.case_id, payload.injury_id)
+        return dict(row)
+
+@app.patch("/case-associated-injuries/{case_id}/{injury_id}", tags=["case_associated_injuries"], response_model=CaseAssociatedInjuryRead)
+def update_case_associated_injury(case_id: int, injury_id: int, payload: CaseAssociatedInjuryPatch) -> dict[str, Any]:
+    """Update an existing case_associated_injuries association row."""
+    with get_connection() as connection:
+        row = get_case_associated_injury_or_404(connection, case_id, injury_id)
+        current_data = dict(row)
+
+        update_data = payload.model_dump(exclude_unset=True)
+        if "date_of_injury" in update_data and update_data["date_of_injury"] is not None:
+            update_data["date_of_injury"] = update_data["date_of_injury"].isoformat()
+
+        if not update_data:
+            return current_data
+
+        set_clauses = " , ".join([f"{k} = ?" for k in update_data.keys()])
+        values = list(update_data.values())
+        
+        values.extend([case_id, injury_id])
+        update_query = f"UPDATE case_associated_injuries SET {set_clauses}, updated_at = CURRENT_TIMESTAMP WHERE case_id = ? AND injury_id = ?"
+        
+        connection.execute(update_query, tuple(values))
+        updated_row = get_case_associated_injury_or_404(connection, case_id, injury_id)
+        return dict(updated_row)
+
+@app.delete("/case-associated-injuries/{case_id}/{injury_id}", tags=["case_associated_injuries"])
+def delete_case_associated_injury(case_id: int, injury_id: int) -> dict[str, str]:
+    """Delete one case_associated_injuries association row."""
+    with get_connection() as connection:
+        get_case_associated_injury_or_404(connection, case_id, injury_id)
+        connection.execute(
+            "DELETE FROM case_associated_injuries WHERE case_id = ? AND injury_id = ?",
+            (case_id, injury_id),
+        )
+
+    return {"message": f"Association ({case_id}, {injury_id}) deleted"}
 
 class BurnDepthRead(BaseModel):
     id: int

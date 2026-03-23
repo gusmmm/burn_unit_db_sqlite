@@ -2157,6 +2157,20 @@ def burn_unit_cases_tab() -> None:
 
 
 @st.cache_data(ttl=5)
+def load_pathologies() -> list[dict[str, Any]]:
+    status, data = request_json("GET", "/pathologies")
+    if status != 200:
+        return []
+    return data
+
+@st.cache_data(ttl=5)
+def load_case_associated_injuries(case_id: int) -> list[dict[str, Any]]:
+    status, data = request_json("GET", f"/case-associated-injuries/{case_id}")
+    if status != 200:
+        return []
+    return data
+
+@st.cache_data(ttl=5)
 def load_case_burns(case_id: int | None = None) -> list[dict[str, Any]]:
     """Load case_burns from API optionally filtered by case_id."""
     path = f"/case-burns?case_id={case_id}" if case_id is not None else "/case-burns"
@@ -2294,6 +2308,123 @@ def render_case_burns_section(selected_case: dict[str, Any]) -> None:
     card_close()
 
 
+
+def render_case_associated_injuries_section(selected_case: dict[str, Any]) -> None:
+    """Render the Case Associated Injuries Section linked to an open Burn Unit Case"""
+    card_open()
+    section_title("Associated Injuries")
+    case_id = selected_case["id"]
+    try:
+        associated_injuries = load_case_associated_injuries(case_id=case_id)
+        pathologies = load_pathologies()
+    except Exception as e:
+        st.error(str(e))
+        card_close()
+        return
+
+    path_by_id = {row["id"]: row for row in pathologies}
+
+    if not associated_injuries:
+        st.info("No associated injuries recorded for this case.")
+    else:
+        # Build enriched view for dataframe
+        enriched_injuries = []
+        for inj in associated_injuries:
+            path_name = path_by_id.get(inj.get("injury_id"), {}).get("name", "Unknown Pathology")
+            enriched_injuries.append({
+                "Injury": f"[{inj.get('injury_id')}] {path_name}",
+                "Date of Injury": inj.get("date_of_injury", ""),
+                "Note": inj.get("note", "")
+            })
+        st.dataframe(enriched_injuries, hide_index=True, use_container_width=True)
+
+    op_tabs = st.tabs(["Add", "Edit", "Delete"])
+    
+    with op_tabs[0]:
+        with st.form("create_case_associated_injury_form"):
+            path_options = [{"id": p["id"], "label": f"{p['id']} - {p['name']}"} for p in pathologies]
+            
+            if not path_options: path_options = [{"id": 0, "label": "No pathologies available"}]
+
+            sel_injury = st.selectbox("Associated Injury (Pathology)", options=path_options, format_func=lambda x: x["label"])
+            # The schema allows date_of_injury, let's use date_input with a default to today
+            import datetime
+            date_of_injury = st.date_input("Date of Injury", value=None)
+            note = st.text_area("Note", placeholder="Optional")
+            
+            if st.form_submit_button("Add Associated Injury"):
+                payload = {
+                    "case_id": case_id,
+                    "injury_id": sel_injury["id"],
+                    "date_of_injury": date_of_injury.isoformat() if date_of_injury else None,
+                    "note": optional_text(note),
+                }
+                status_code, data = request_json("POST", "/case-associated-injuries", payload)
+                show_api_result(status_code, data)
+                if 200 <= status_code < 300:
+                    load_case_associated_injuries.clear()
+                    st.rerun()
+
+    with op_tabs[1]:
+        if associated_injuries:
+            with st.form("edit_case_associated_injury_form"):
+                inj_opts = []
+                for inj in associated_injuries:
+                    path_name = path_by_id.get(inj.get("injury_id"), {}).get("name", "Unknown Pathology")
+                    inj_opts.append({
+                        "injury_id": inj['injury_id'],
+                        "label": f"{inj['injury_id']} | {path_name}",
+                        "note": inj.get("note", ""),
+                        "date_of_injury": inj.get("date_of_injury", None)
+                    })
+                selected_opt = st.selectbox("Select Associated Injury", options=inj_opts, format_func=lambda x: x["label"])
+                
+                target_injury_id = selected_opt["injury_id"] if selected_opt else 1
+                target_note = selected_opt["note"] if selected_opt else ""
+                target_date_str = selected_opt["date_of_injury"] if selected_opt else None
+
+                import datetime
+                try: # try to parse the existing date string if any
+                    default_date = datetime.date.fromisoformat(target_date_str) if target_date_str else None
+                except Exception:
+                    default_date = None
+                
+                patch_date = st.date_input("Update Date of Injury", value=default_date)
+                patch_note = st.text_area("Update Note", value=target_note)
+                
+                if st.form_submit_button("Update Associated Injury"):
+                    payload = {
+                        "date_of_injury": patch_date.isoformat() if patch_date else None,
+                        "note": patch_note
+                    }
+                    status_code, data = request_json("PATCH", f"/case-associated-injuries/{case_id}/{target_injury_id}", payload)
+                    show_api_result(status_code, data)
+                    if 200 <= status_code < 300:
+                        load_case_associated_injuries.clear()
+                        st.rerun()
+
+    with op_tabs[2]:
+        if associated_injuries:
+            with st.form("delete_case_associated_injury_form"):
+                inj_opts = []
+                for inj in associated_injuries:
+                    path_name = path_by_id.get(inj.get("injury_id"), {}).get("name", "Unknown Pathology")
+                    inj_opts.append({
+                        "injury_id": inj['injury_id'],
+                        "label": f"{inj['injury_id']} | {path_name}"
+                    })
+                selected_opt = st.selectbox("Select Associated Injury to Delete", options=inj_opts, format_func=lambda x: x["label"], key="del_inj")
+                
+                if st.form_submit_button("Delete Associated Injury", type="primary"):
+                    target_injury_id = selected_opt["injury_id"] if selected_opt else 1
+                    status_code, data = request_json("DELETE", f"/case-associated-injuries/{case_id}/{target_injury_id}")
+                    show_api_result(status_code, data)
+                    if 200 <= status_code < 300:
+                        load_case_associated_injuries.clear()
+                        st.rerun()
+                        
+    card_close()
+
 def render_burn_unit_case_future_associations_placeholder() -> None:
     """Reserve space for future burn-case association tables."""
     card_open(compact=True)
@@ -2364,6 +2495,7 @@ def burn_unit_case_overview_tab() -> None:
     card_close()
 
     render_case_burns_section(selected_case)
+    render_case_associated_injuries_section(selected_case)
 
     render_burn_unit_case_future_associations_placeholder()
 
