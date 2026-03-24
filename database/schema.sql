@@ -271,7 +271,48 @@ CREATE TABLE IF NOT EXISTS case_procedures (
     FOREIGN KEY (case_id) REFERENCES burn_unit_cases(id),
     FOREIGN KEY (procedure_id) REFERENCES medical_procedures(id)
 );
--- Table: interventions
--- Table: case_interventions
+
+---------------------------------
+-- Table: surgical_interventions
+CREATE TABLE IF NOT EXISTS surgical_interventions (
+    id INTEGER PRIMARY KEY,
+    snomed_ct_code TEXT NOT NULL, -- SNOMED-CT Concept ID
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+-- Table: case_surgical_interventions
+CREATE TABLE IF NOT EXISTS case_surgical_interventions (
+    case_id INTEGER NOT NULL,
+    intervention_id INTEGER NOT NULL,
+    date_started DATE,
+    date_stopped DATE,
+    note TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (case_id, intervention_id),
+    FOREIGN KEY (case_id) REFERENCES burn_unit_cases(id),
+    FOREIGN KEY (intervention_id) REFERENCES surgical_interventions(id)
+);
 -- Table: complications
+CREATE TABLE IF NOT EXISTS complications (
+    id INTEGER PRIMARY KEY,
+    snomed_ct_code TEXT NOT NULL, -- SNOMED-CT Concept ID
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 -- Table: case_complications
+CREATE TABLE IF NOT EXISTS case_complications (
+    case_id INTEGER NOT NULL,
+    complication_id INTEGER NOT NULL,
+    date_started DATE,
+    note TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (case_id, complication_id),
+    FOREIGN KEY (case_id) REFERENCES burn_unit_cases(id),
+    FOREIGN KEY (complication_id) REFERENCES complications(id)
+);

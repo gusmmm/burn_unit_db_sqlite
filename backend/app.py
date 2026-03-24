@@ -769,6 +769,145 @@ class CaseProcedureRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SurgicalInterventionCreate(BaseModel):
+    """Payload used for creating a surgical_interventions row."""
+
+    snomed_ct_code: str
+    name: str
+    description: str | None = None
+
+
+class SurgicalInterventionWrite(BaseModel):
+    """Payload used for replacing editable surgical intervention fields."""
+
+    snomed_ct_code: str
+    name: str
+    description: str | None = None
+
+
+class SurgicalInterventionPatch(BaseModel):
+    """Payload used for partially updating surgical intervention fields."""
+
+    snomed_ct_code: str | None = None
+    name: str | None = None
+    description: str | None = None
+
+
+class SurgicalInterventionRead(BaseModel):
+    """Response model representing a surgical_interventions row."""
+
+    id: int
+    snomed_ct_code: str
+    name: str
+    description: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CaseSurgicalInterventionCreate(BaseModel):
+    """Payload used for creating a case_surgical_interventions association row."""
+
+    case_id: int
+    intervention_id: int
+    date_started: str | None = None
+    date_stopped: str | None = None
+    note: str | None = None
+
+
+class CaseSurgicalInterventionPatch(BaseModel):
+    """Payload used for partially updating a case_surgical_interventions association row."""
+
+    case_id: int | None = None
+    intervention_id: int | None = None
+    date_started: str | None = None
+    date_stopped: str | None = None
+    note: str | None = None
+
+
+class CaseSurgicalInterventionRead(BaseModel):
+    """Response model representing a case_surgical_interventions association row."""
+
+    case_id: int
+    intervention_id: int
+    date_started: str | None = None
+    date_stopped: str | None = None
+    note: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ComplicationCreate(BaseModel):
+    """Payload used for creating a complications row."""
+
+    snomed_ct_code: str
+    name: str
+    description: str | None = None
+
+
+class ComplicationWrite(BaseModel):
+    """Payload used for replacing editable complication fields."""
+
+    snomed_ct_code: str
+    name: str
+    description: str | None = None
+
+
+class ComplicationPatch(BaseModel):
+    """Payload used for partially updating complication fields."""
+
+    snomed_ct_code: str | None = None
+    name: str | None = None
+    description: str | None = None
+
+
+class ComplicationRead(BaseModel):
+    """Response model representing a complications row."""
+
+    id: int
+    snomed_ct_code: str
+    name: str
+    description: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CaseComplicationCreate(BaseModel):
+    """Payload used for creating a case_complications association row."""
+
+    case_id: int
+    complication_id: int
+    date_started: str | None = None
+    note: str | None = None
+
+
+class CaseComplicationPatch(BaseModel):
+    """Payload used for partially updating a case_complications association row."""
+
+    case_id: int | None = None
+    complication_id: int | None = None
+    date_started: str | None = None
+    note: str | None = None
+
+
+class CaseComplicationRead(BaseModel):
+    """Response model representing a case_complications association row."""
+
+    case_id: int
+    complication_id: int
+    date_started: str | None = None
+    note: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 
 def get_connection() -> sqlite3.Connection:
     """Return a SQLite connection configured to expose rows as dictionaries."""
@@ -1077,6 +1216,72 @@ def get_case_procedure_or_404(
     return dict(row)
 
 
+def get_surgical_intervention_or_404(
+    connection: sqlite3.Connection,
+    intervention_id: int,
+) -> dict[str, Any]:
+    """Fetch a surgical intervention by id or raise 404 if not found."""
+    row = connection.execute(
+        "SELECT * FROM surgical_interventions WHERE id = ?",
+        (intervention_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Surgical intervention not found")
+    return dict(row)
+
+
+def get_case_surgical_intervention_or_404(
+    connection: sqlite3.Connection,
+    case_id: int,
+    intervention_id: int,
+) -> dict[str, Any]:
+    """Fetch a case_surgical_interventions association row by composite key or raise 404 if not found."""
+    row = connection.execute(
+        """
+        SELECT *
+        FROM case_surgical_interventions
+        WHERE case_id = ? AND intervention_id = ?
+        """,
+        (case_id, intervention_id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Case surgical intervention association not found")
+    return dict(row)
+
+
+def get_complication_or_404(
+    connection: sqlite3.Connection,
+    complication_id: int,
+) -> dict[str, Any]:
+    """Fetch a complication by id or raise 404 if not found."""
+    row = connection.execute(
+        "SELECT * FROM complications WHERE id = ?",
+        (complication_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Complication not found")
+    return dict(row)
+
+
+def get_case_complication_or_404(
+    connection: sqlite3.Connection,
+    case_id: int,
+    complication_id: int,
+) -> dict[str, Any]:
+    """Fetch a case_complications association row by composite key or raise 404 if not found."""
+    row = connection.execute(
+        """
+        SELECT *
+        FROM case_complications
+        WHERE case_id = ? AND complication_id = ?
+        """,
+        (case_id, complication_id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Case complication association not found")
+    return dict(row)
+
+
 def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
     """Fetch all rows from the provided table name in ascending id order when available."""
     query = f"SELECT * FROM {table_name}"
@@ -1093,6 +1298,8 @@ def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
         "microbiology_agents",
         "case_microbiology",
         "medical_procedures",
+        "surgical_interventions",
+        "complications",
     }:
         query += " ORDER BY id"
 
@@ -1117,7 +1324,8 @@ def read_root() -> dict[str, str]:
             "/patients, /addresses, /pathologies, /patient-pathologies, /medications, "
             "/patient-medications, /provenance-destinations, /burn-etiologies, /burn-unit-cases, "
             "/infections, /antibiotics, /microbiology-specimens, /microbiology-agents, /case-microbiology, "
-            "/medical-procedures, /case-procedures"
+            "/medical-procedures, /case-procedures, /surgical-interventions, "
+            "/case-surgical-interventions, /complications, /case-complications"
         ),
     }
 
@@ -3923,3 +4131,623 @@ def delete_case_procedure(case_id: int, procedure_id: int) -> dict[str, str]:
         )
 
     return {"message": f"Association ({case_id}, {procedure_id}) deleted"}
+
+
+@app.get(
+    "/surgical-interventions",
+    tags=["surgical_interventions"],
+    response_model=list[SurgicalInterventionRead],
+)
+def get_surgical_interventions() -> list[dict[str, Any]]:
+    """Return every surgical intervention row from the surgical_interventions table."""
+    return fetch_all_rows("surgical_interventions")
+
+
+@app.get(
+    "/surgical-interventions/{intervention_id}",
+    tags=["surgical_interventions"],
+    response_model=SurgicalInterventionRead,
+)
+def get_surgical_intervention(intervention_id: int) -> dict[str, Any]:
+    """Return one surgical intervention row by id."""
+    with get_connection() as connection:
+        return get_surgical_intervention_or_404(connection, intervention_id)
+
+
+@app.post(
+    "/surgical-interventions",
+    tags=["surgical_interventions"],
+    response_model=SurgicalInterventionRead,
+    status_code=201,
+)
+def create_surgical_intervention(payload: SurgicalInterventionCreate) -> dict[str, Any]:
+    """Create a new surgical intervention row and return the inserted record."""
+    try:
+        with get_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO surgical_interventions (snomed_ct_code, name, description)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    payload.snomed_ct_code,
+                    payload.name,
+                    payload.description,
+                ),
+            )
+            intervention_id = cursor.lastrowid
+            row = connection.execute(
+                "SELECT * FROM surgical_interventions WHERE id = ?",
+                (intervention_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid surgical intervention data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Surgical intervention created but could not be read back")
+    return dict(row)
+
+
+@app.put(
+    "/surgical-interventions/{intervention_id}",
+    tags=["surgical_interventions"],
+    response_model=SurgicalInterventionRead,
+)
+def update_surgical_intervention(
+    intervention_id: int,
+    payload: SurgicalInterventionWrite,
+) -> dict[str, Any]:
+    """Replace surgical intervention editable fields by id and return the updated record."""
+    try:
+        with get_connection() as connection:
+            get_surgical_intervention_or_404(connection, intervention_id)
+            connection.execute(
+                """
+                UPDATE surgical_interventions
+                SET snomed_ct_code = ?,
+                    name = ?,
+                    description = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    payload.snomed_ct_code,
+                    payload.name,
+                    payload.description,
+                    intervention_id,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM surgical_interventions WHERE id = ?",
+                (intervention_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid surgical intervention data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Surgical intervention updated but could not be read back")
+    return dict(row)
+
+
+@app.patch(
+    "/surgical-interventions/{intervention_id}",
+    tags=["surgical_interventions"],
+    response_model=SurgicalInterventionRead,
+)
+def patch_surgical_intervention(
+    intervention_id: int,
+    payload: SurgicalInterventionPatch,
+) -> dict[str, Any]:
+    """Partially update surgical intervention fields by id and return the updated record."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {"snomed_ct_code", "name", "description"}
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.append(intervention_id)
+    query = f"UPDATE surgical_interventions SET {', '.join(assignments)} WHERE id = ?"
+
+    try:
+        with get_connection() as connection:
+            get_surgical_intervention_or_404(connection, intervention_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                "SELECT * FROM surgical_interventions WHERE id = ?",
+                (intervention_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid surgical intervention data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Surgical intervention updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/surgical-interventions/{intervention_id}", tags=["surgical_interventions"])
+def delete_surgical_intervention(intervention_id: int) -> dict[str, str]:
+    """Delete one surgical intervention by id when no child rows block the operation."""
+    try:
+        with get_connection() as connection:
+            get_surgical_intervention_or_404(connection, intervention_id)
+            connection.execute("DELETE FROM surgical_interventions WHERE id = ?", (intervention_id,))
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete surgical intervention because it is referenced by related data: {exc}",
+        ) from exc
+
+    return {"message": f"Surgical intervention {intervention_id} deleted"}
+
+
+@app.get(
+    "/case-surgical-interventions",
+    tags=["case_surgical_interventions"],
+    response_model=list[CaseSurgicalInterventionRead],
+)
+def get_case_surgical_interventions(case_id: int | None = None) -> list[dict[str, Any]]:
+    """Return case_surgical_interventions rows optionally filtered by case_id."""
+    with get_connection() as connection:
+        if case_id is not None:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM case_surgical_interventions
+                WHERE case_id = ?
+                ORDER BY case_id, intervention_id
+                """,
+                (case_id,),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT * FROM case_surgical_interventions ORDER BY case_id, intervention_id"
+            ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.get(
+    "/case-surgical-interventions/{case_id}/{intervention_id}",
+    tags=["case_surgical_interventions"],
+    response_model=CaseSurgicalInterventionRead,
+)
+def get_case_surgical_intervention(case_id: int, intervention_id: int) -> dict[str, Any]:
+    """Return one case_surgical_interventions association by composite key."""
+    with get_connection() as connection:
+        return get_case_surgical_intervention_or_404(connection, case_id, intervention_id)
+
+
+@app.post(
+    "/case-surgical-interventions",
+    tags=["case_surgical_interventions"],
+    response_model=CaseSurgicalInterventionRead,
+    status_code=201,
+)
+def create_case_surgical_intervention(payload: CaseSurgicalInterventionCreate) -> dict[str, Any]:
+    """Create a case_surgical_interventions association and return the inserted row."""
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO case_surgical_interventions (
+                    case_id,
+                    intervention_id,
+                    date_started,
+                    date_stopped,
+                    note
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    payload.case_id,
+                    payload.intervention_id,
+                    payload.date_started,
+                    payload.date_stopped,
+                    payload.note,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT *
+                FROM case_surgical_interventions
+                WHERE case_id = ? AND intervention_id = ?
+                """,
+                (payload.case_id, payload.intervention_id),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid case_surgical_interventions data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Association created but could not be read back")
+    return dict(row)
+
+
+@app.patch(
+    "/case-surgical-interventions/{case_id}/{intervention_id}",
+    tags=["case_surgical_interventions"],
+    response_model=CaseSurgicalInterventionRead,
+)
+def patch_case_surgical_intervention(
+    case_id: int,
+    intervention_id: int,
+    payload: CaseSurgicalInterventionPatch,
+) -> dict[str, Any]:
+    """Partially update a case_surgical_interventions association row by composite key."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {
+        "case_id",
+        "intervention_id",
+        "date_started",
+        "date_stopped",
+        "note",
+    }
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.extend([case_id, intervention_id])
+    query = (
+        f"UPDATE case_surgical_interventions SET {', '.join(assignments)} "
+        "WHERE case_id = ? AND intervention_id = ?"
+    )
+
+    new_case_id = updates.get("case_id", case_id)
+    new_intervention_id = updates.get("intervention_id", intervention_id)
+
+    try:
+        with get_connection() as connection:
+            get_case_surgical_intervention_or_404(connection, case_id, intervention_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                """
+                SELECT *
+                FROM case_surgical_interventions
+                WHERE case_id = ? AND intervention_id = ?
+                """,
+                (new_case_id, new_intervention_id),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid case_surgical_interventions data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Association updated but could not be read back")
+    return dict(row)
+
+
+@app.delete(
+    "/case-surgical-interventions/{case_id}/{intervention_id}",
+    tags=["case_surgical_interventions"],
+)
+def delete_case_surgical_intervention(case_id: int, intervention_id: int) -> dict[str, str]:
+    """Delete one case_surgical_interventions association row by composite key."""
+    with get_connection() as connection:
+        get_case_surgical_intervention_or_404(connection, case_id, intervention_id)
+        connection.execute(
+            "DELETE FROM case_surgical_interventions WHERE case_id = ? AND intervention_id = ?",
+            (case_id, intervention_id),
+        )
+
+    return {"message": f"Association ({case_id}, {intervention_id}) deleted"}
+
+
+@app.get("/complications", tags=["complications"], response_model=list[ComplicationRead])
+def get_complications() -> list[dict[str, Any]]:
+    """Return every complication row from the complications table."""
+    return fetch_all_rows("complications")
+
+
+@app.get(
+    "/complications/{complication_id}",
+    tags=["complications"],
+    response_model=ComplicationRead,
+)
+def get_complication(complication_id: int) -> dict[str, Any]:
+    """Return one complication row by id."""
+    with get_connection() as connection:
+        return get_complication_or_404(connection, complication_id)
+
+
+@app.post(
+    "/complications",
+    tags=["complications"],
+    response_model=ComplicationRead,
+    status_code=201,
+)
+def create_complication(payload: ComplicationCreate) -> dict[str, Any]:
+    """Create a new complication row and return the inserted record."""
+    try:
+        with get_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO complications (snomed_ct_code, name, description)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    payload.snomed_ct_code,
+                    payload.name,
+                    payload.description,
+                ),
+            )
+            complication_id = cursor.lastrowid
+            row = connection.execute(
+                "SELECT * FROM complications WHERE id = ?",
+                (complication_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid complication data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Complication created but could not be read back")
+    return dict(row)
+
+
+@app.put(
+    "/complications/{complication_id}",
+    tags=["complications"],
+    response_model=ComplicationRead,
+)
+def update_complication(complication_id: int, payload: ComplicationWrite) -> dict[str, Any]:
+    """Replace complication editable fields by id and return the updated record."""
+    try:
+        with get_connection() as connection:
+            get_complication_or_404(connection, complication_id)
+            connection.execute(
+                """
+                UPDATE complications
+                SET snomed_ct_code = ?,
+                    name = ?,
+                    description = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    payload.snomed_ct_code,
+                    payload.name,
+                    payload.description,
+                    complication_id,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM complications WHERE id = ?",
+                (complication_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid complication data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Complication updated but could not be read back")
+    return dict(row)
+
+
+@app.patch(
+    "/complications/{complication_id}",
+    tags=["complications"],
+    response_model=ComplicationRead,
+)
+def patch_complication(complication_id: int, payload: ComplicationPatch) -> dict[str, Any]:
+    """Partially update complication fields by id and return the updated record."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {"snomed_ct_code", "name", "description"}
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.append(complication_id)
+    query = f"UPDATE complications SET {', '.join(assignments)} WHERE id = ?"
+
+    try:
+        with get_connection() as connection:
+            get_complication_or_404(connection, complication_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                "SELECT * FROM complications WHERE id = ?",
+                (complication_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid complication data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Complication updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/complications/{complication_id}", tags=["complications"])
+def delete_complication(complication_id: int) -> dict[str, str]:
+    """Delete one complication by id when no child rows block the operation."""
+    try:
+        with get_connection() as connection:
+            get_complication_or_404(connection, complication_id)
+            connection.execute("DELETE FROM complications WHERE id = ?", (complication_id,))
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete complication because it is referenced by related data: {exc}",
+        ) from exc
+
+    return {"message": f"Complication {complication_id} deleted"}
+
+
+@app.get(
+    "/case-complications",
+    tags=["case_complications"],
+    response_model=list[CaseComplicationRead],
+)
+def get_case_complications(case_id: int | None = None) -> list[dict[str, Any]]:
+    """Return case_complications rows optionally filtered by case_id."""
+    with get_connection() as connection:
+        if case_id is not None:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM case_complications
+                WHERE case_id = ?
+                ORDER BY case_id, complication_id
+                """,
+                (case_id,),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT * FROM case_complications ORDER BY case_id, complication_id"
+            ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.get(
+    "/case-complications/{case_id}/{complication_id}",
+    tags=["case_complications"],
+    response_model=CaseComplicationRead,
+)
+def get_case_complication(case_id: int, complication_id: int) -> dict[str, Any]:
+    """Return one case_complications association by composite key."""
+    with get_connection() as connection:
+        return get_case_complication_or_404(connection, case_id, complication_id)
+
+
+@app.post(
+    "/case-complications",
+    tags=["case_complications"],
+    response_model=CaseComplicationRead,
+    status_code=201,
+)
+def create_case_complication(payload: CaseComplicationCreate) -> dict[str, Any]:
+    """Create a case_complications association and return the inserted row."""
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO case_complications (
+                    case_id,
+                    complication_id,
+                    date_started,
+                    note
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    payload.case_id,
+                    payload.complication_id,
+                    payload.date_started,
+                    payload.note,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT *
+                FROM case_complications
+                WHERE case_id = ? AND complication_id = ?
+                """,
+                (payload.case_id, payload.complication_id),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid case_complications data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Association created but could not be read back")
+    return dict(row)
+
+
+@app.patch(
+    "/case-complications/{case_id}/{complication_id}",
+    tags=["case_complications"],
+    response_model=CaseComplicationRead,
+)
+def patch_case_complication(
+    case_id: int,
+    complication_id: int,
+    payload: CaseComplicationPatch,
+) -> dict[str, Any]:
+    """Partially update a case_complications association row by composite key."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {
+        "case_id",
+        "complication_id",
+        "date_started",
+        "note",
+    }
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.extend([case_id, complication_id])
+    query = (
+        f"UPDATE case_complications SET {', '.join(assignments)} "
+        "WHERE case_id = ? AND complication_id = ?"
+    )
+
+    new_case_id = updates.get("case_id", case_id)
+    new_complication_id = updates.get("complication_id", complication_id)
+
+    try:
+        with get_connection() as connection:
+            get_case_complication_or_404(connection, case_id, complication_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                """
+                SELECT *
+                FROM case_complications
+                WHERE case_id = ? AND complication_id = ?
+                """,
+                (new_case_id, new_complication_id),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid case_complications data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Association updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/case-complications/{case_id}/{complication_id}", tags=["case_complications"])
+def delete_case_complication(case_id: int, complication_id: int) -> dict[str, str]:
+    """Delete one case_complications association row by composite key."""
+    with get_connection() as connection:
+        get_case_complication_or_404(connection, case_id, complication_id)
+        connection.execute(
+            "DELETE FROM case_complications WHERE case_id = ? AND complication_id = ?",
+            (case_id, complication_id),
+        )
+
+    return {"message": f"Association ({case_id}, {complication_id}) deleted"}
