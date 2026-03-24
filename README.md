@@ -30,6 +30,18 @@ Choose host/port:
 uv run main.py --mode backend --host 127.0.0.1 --port 8000
 ```
 
+Choose a specific SQLite database file:
+
+```bash
+uv run main.py --mode backend --port 8000 --db-path database/database.db
+```
+
+Use a private database stored in `private/`:
+
+```bash
+uv run main.py --mode backend --port 8000 --db-path private/my_private.db
+```
+
 API docs:
 
 - Swagger UI: `http://127.0.0.1:8000/docs`
@@ -58,7 +70,7 @@ Open in browser:
 1. Start backend:
 
 ```bash
-uv run main.py --mode backend --port 8000
+uv run main.py --mode backend --port 8000 --db-path database/database.db
 ```
 
 2. In another terminal, start frontend:
@@ -66,6 +78,12 @@ uv run main.py --mode backend --port 8000
 ```bash
 uv run main.py --mode frontend --port 8501 --api-url http://127.0.0.1:8000
 ```
+
+## Database selection strategy
+
+- Recommended: select the database in backend startup (`--db-path`).
+- Why: the database is a backend concern; this keeps one source of truth, clearer auditability, and lower risk of accidental writes to the wrong file.
+- Streamlit database pickers are better treated as optional convenience only after backend selection is stable.
 
 ## Launcher help
 

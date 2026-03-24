@@ -32,11 +32,21 @@ def parse_args() -> argparse.Namespace:
         default="http://127.0.0.1:8000",
         help="Backend API base URL used by frontend mode.",
     )
+    parser.add_argument(
+        "--db-path",
+        default=None,
+        help=(
+            "SQLite database file for backend mode. Accepts absolute or project-relative paths "
+            "(example: database/database.db or private/my_private.db)."
+        ),
+    )
     return parser.parse_args()
 
 
-def run_backend(host: str, port: int) -> None:
+def run_backend(host: str, port: int, db_path: str | None = None) -> None:
     """Start the FastAPI backend server."""
+    if db_path:
+        os.environ["BURN_DB_PATH"] = db_path
     uvicorn.run("backend.app:app", host=host, port=port, reload=False)
 
 
@@ -62,7 +72,7 @@ def main() -> None:
     """Start the selected server mode."""
     args = parse_args()
     if args.mode == "backend":
-        run_backend(host=args.host, port=args.port or 8000)
+        run_backend(host=args.host, port=args.port or 8000, db_path=args.db_path)
         return
 
     try:

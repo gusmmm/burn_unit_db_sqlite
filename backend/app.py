@@ -1,5 +1,6 @@
 """FastAPI application exposing read-only endpoints for burn unit tables."""
 
+import os
 from pathlib import Path
 import sqlite3
 from typing import Any
@@ -8,7 +9,23 @@ from datetime import date
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-DATABASE_PATH = Path(__file__).resolve().parents[1] / "database" / "database.db"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def resolve_database_path() -> Path:
+    """Resolve database path from environment or fallback default."""
+    default_path = PROJECT_ROOT / "database" / "database.db"
+    raw_path = os.getenv("BURN_DB_PATH")
+    if not raw_path:
+        return default_path
+
+    candidate = Path(raw_path).expanduser()
+    if not candidate.is_absolute():
+        return (PROJECT_ROOT / candidate).resolve()
+    return candidate.resolve()
+
+
+DATABASE_PATH = resolve_database_path()
 
 app = FastAPI(
     title="Burn Unit Database API",
@@ -911,7 +928,10 @@ class CaseComplicationRead(BaseModel):
 
 def get_connection() -> sqlite3.Connection:
     """Return a SQLite connection configured to expose rows as dictionaries."""
-    connection = sqlite3.connect(DATABASE_PATH)
+    if not DATABASE_PATH.exists():
+        raise HTTPException(status_code=500, detail=f"Database file not found: {DATABASE_PATH}")
+
+    connection = sqlite3.connect(str(DATABASE_PATH))
     connection.execute("PRAGMA foreign_keys = ON")
     connection.row_factory = sqlite3.Row
     return connection
