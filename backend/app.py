@@ -698,6 +698,77 @@ class CaseMicrobiologyRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class MedicalProcedureCreate(BaseModel):
+    """Payload used for creating a medical_procedures row."""
+
+    snomed_ct_code: str
+    name: str
+    description: str | None = None
+
+
+class MedicalProcedureWrite(BaseModel):
+    """Payload used for replacing editable medical procedure fields."""
+
+    snomed_ct_code: str
+    name: str
+    description: str | None = None
+
+
+class MedicalProcedurePatch(BaseModel):
+    """Payload used for partially updating medical procedure fields."""
+
+    snomed_ct_code: str | None = None
+    name: str | None = None
+    description: str | None = None
+
+
+class MedicalProcedureRead(BaseModel):
+    """Response model representing a medical_procedures row."""
+
+    id: int
+    snomed_ct_code: str
+    name: str
+    description: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CaseProcedureCreate(BaseModel):
+    """Payload used for creating a case_procedures association row."""
+
+    case_id: int
+    procedure_id: int
+    date_started: str | None = None
+    date_stopped: str | None = None
+    note: str | None = None
+
+
+class CaseProcedurePatch(BaseModel):
+    """Payload used for partially updating a case_procedures association row."""
+
+    case_id: int | None = None
+    procedure_id: int | None = None
+    date_started: str | None = None
+    date_stopped: str | None = None
+    note: str | None = None
+
+
+class CaseProcedureRead(BaseModel):
+    """Response model representing a case_procedures association row."""
+
+    case_id: int
+    procedure_id: int
+    date_started: str | None = None
+    date_stopped: str | None = None
+    note: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 
 def get_connection() -> sqlite3.Connection:
     """Return a SQLite connection configured to expose rows as dictionaries."""
@@ -973,6 +1044,39 @@ def get_case_microbiology_or_404(
     return dict(row)
 
 
+def get_medical_procedure_or_404(
+    connection: sqlite3.Connection,
+    procedure_id: int,
+) -> dict[str, Any]:
+    """Fetch a medical procedure by id or raise 404 if not found."""
+    row = connection.execute(
+        "SELECT * FROM medical_procedures WHERE id = ?",
+        (procedure_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Medical procedure not found")
+    return dict(row)
+
+
+def get_case_procedure_or_404(
+    connection: sqlite3.Connection,
+    case_id: int,
+    procedure_id: int,
+) -> dict[str, Any]:
+    """Fetch a case_procedures association row by composite key or raise 404 if not found."""
+    row = connection.execute(
+        """
+        SELECT *
+        FROM case_procedures
+        WHERE case_id = ? AND procedure_id = ?
+        """,
+        (case_id, procedure_id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Case procedure association not found")
+    return dict(row)
+
+
 def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
     """Fetch all rows from the provided table name in ascending id order when available."""
     query = f"SELECT * FROM {table_name}"
@@ -988,6 +1092,7 @@ def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
         "microbiology_specimens",
         "microbiology_agents",
         "case_microbiology",
+        "medical_procedures",
     }:
         query += " ORDER BY id"
 
@@ -1011,7 +1116,8 @@ def read_root() -> dict[str, str]:
         "endpoints": (
             "/patients, /addresses, /pathologies, /patient-pathologies, /medications, "
             "/patient-medications, /provenance-destinations, /burn-etiologies, /burn-unit-cases, "
-            "/infections, /antibiotics, /microbiology-specimens, /microbiology-agents, /case-microbiology"
+            "/infections, /antibiotics, /microbiology-specimens, /microbiology-agents, /case-microbiology, "
+            "/medical-procedures, /case-procedures"
         ),
     }
 
@@ -3519,3 +3625,301 @@ def delete_case_microbiology(case_microbiology_id: int) -> dict[str, str]:
         connection.execute("DELETE FROM case_microbiology WHERE id = ?", (case_microbiology_id,))
 
     return {"message": f"Case microbiology row {case_microbiology_id} deleted"}
+
+
+@app.get("/medical-procedures", tags=["medical_procedures"], response_model=list[MedicalProcedureRead])
+def get_medical_procedures() -> list[dict[str, Any]]:
+    """Return every medical procedure row from the medical_procedures table."""
+    return fetch_all_rows("medical_procedures")
+
+
+@app.get(
+    "/medical-procedures/{procedure_id}",
+    tags=["medical_procedures"],
+    response_model=MedicalProcedureRead,
+)
+def get_medical_procedure(procedure_id: int) -> dict[str, Any]:
+    """Return one medical procedure row by id."""
+    with get_connection() as connection:
+        return get_medical_procedure_or_404(connection, procedure_id)
+
+
+@app.post(
+    "/medical-procedures",
+    tags=["medical_procedures"],
+    response_model=MedicalProcedureRead,
+    status_code=201,
+)
+def create_medical_procedure(payload: MedicalProcedureCreate) -> dict[str, Any]:
+    """Create a new medical procedure row and return the inserted record."""
+    try:
+        with get_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO medical_procedures (snomed_ct_code, name, description)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    payload.snomed_ct_code,
+                    payload.name,
+                    payload.description,
+                ),
+            )
+            procedure_id = cursor.lastrowid
+            row = connection.execute(
+                "SELECT * FROM medical_procedures WHERE id = ?",
+                (procedure_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid medical procedure data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Medical procedure created but could not be read back")
+    return dict(row)
+
+
+@app.put(
+    "/medical-procedures/{procedure_id}",
+    tags=["medical_procedures"],
+    response_model=MedicalProcedureRead,
+)
+def update_medical_procedure(procedure_id: int, payload: MedicalProcedureWrite) -> dict[str, Any]:
+    """Replace medical procedure editable fields by id and return the updated record."""
+    try:
+        with get_connection() as connection:
+            get_medical_procedure_or_404(connection, procedure_id)
+            connection.execute(
+                """
+                UPDATE medical_procedures
+                SET snomed_ct_code = ?,
+                    name = ?,
+                    description = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    payload.snomed_ct_code,
+                    payload.name,
+                    payload.description,
+                    procedure_id,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM medical_procedures WHERE id = ?",
+                (procedure_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid medical procedure data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Medical procedure updated but could not be read back")
+    return dict(row)
+
+
+@app.patch(
+    "/medical-procedures/{procedure_id}",
+    tags=["medical_procedures"],
+    response_model=MedicalProcedureRead,
+)
+def patch_medical_procedure(procedure_id: int, payload: MedicalProcedurePatch) -> dict[str, Any]:
+    """Partially update medical procedure fields by id and return the updated record."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {"snomed_ct_code", "name", "description"}
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.append(procedure_id)
+    query = f"UPDATE medical_procedures SET {', '.join(assignments)} WHERE id = ?"
+
+    try:
+        with get_connection() as connection:
+            get_medical_procedure_or_404(connection, procedure_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                "SELECT * FROM medical_procedures WHERE id = ?",
+                (procedure_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid medical procedure data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Medical procedure updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/medical-procedures/{procedure_id}", tags=["medical_procedures"])
+def delete_medical_procedure(procedure_id: int) -> dict[str, str]:
+    """Delete one medical procedure by id when no child rows block the operation."""
+    try:
+        with get_connection() as connection:
+            get_medical_procedure_or_404(connection, procedure_id)
+            connection.execute("DELETE FROM medical_procedures WHERE id = ?", (procedure_id,))
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete medical procedure because it is referenced by related data: {exc}",
+        ) from exc
+
+    return {"message": f"Medical procedure {procedure_id} deleted"}
+
+
+@app.get("/case-procedures", tags=["case_procedures"], response_model=list[CaseProcedureRead])
+def get_case_procedures(case_id: int | None = None) -> list[dict[str, Any]]:
+    """Return case_procedures rows optionally filtered by case_id."""
+    with get_connection() as connection:
+        if case_id is not None:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM case_procedures
+                WHERE case_id = ?
+                ORDER BY case_id, procedure_id
+                """,
+                (case_id,),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT * FROM case_procedures ORDER BY case_id, procedure_id"
+            ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.get(
+    "/case-procedures/{case_id}/{procedure_id}",
+    tags=["case_procedures"],
+    response_model=CaseProcedureRead,
+)
+def get_case_procedure(case_id: int, procedure_id: int) -> dict[str, Any]:
+    """Return one case_procedures association by composite key."""
+    with get_connection() as connection:
+        return get_case_procedure_or_404(connection, case_id, procedure_id)
+
+
+@app.post(
+    "/case-procedures",
+    tags=["case_procedures"],
+    response_model=CaseProcedureRead,
+    status_code=201,
+)
+def create_case_procedure(payload: CaseProcedureCreate) -> dict[str, Any]:
+    """Create a case_procedures association and return the inserted row."""
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO case_procedures (
+                    case_id,
+                    procedure_id,
+                    date_started,
+                    date_stopped,
+                    note
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    payload.case_id,
+                    payload.procedure_id,
+                    payload.date_started,
+                    payload.date_stopped,
+                    payload.note,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT *
+                FROM case_procedures
+                WHERE case_id = ? AND procedure_id = ?
+                """,
+                (payload.case_id, payload.procedure_id),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid case_procedures data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Association created but could not be read back")
+    return dict(row)
+
+
+@app.patch(
+    "/case-procedures/{case_id}/{procedure_id}",
+    tags=["case_procedures"],
+    response_model=CaseProcedureRead,
+)
+def patch_case_procedure(
+    case_id: int,
+    procedure_id: int,
+    payload: CaseProcedurePatch,
+) -> dict[str, Any]:
+    """Partially update a case_procedures association row by composite key."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {
+        "case_id",
+        "procedure_id",
+        "date_started",
+        "date_stopped",
+        "note",
+    }
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.extend([case_id, procedure_id])
+    query = f"UPDATE case_procedures SET {', '.join(assignments)} WHERE case_id = ? AND procedure_id = ?"
+
+    new_case_id = updates.get("case_id", case_id)
+    new_procedure_id = updates.get("procedure_id", procedure_id)
+
+    try:
+        with get_connection() as connection:
+            get_case_procedure_or_404(connection, case_id, procedure_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                """
+                SELECT *
+                FROM case_procedures
+                WHERE case_id = ? AND procedure_id = ?
+                """,
+                (new_case_id, new_procedure_id),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid case_procedures data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Association updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/case-procedures/{case_id}/{procedure_id}", tags=["case_procedures"])
+def delete_case_procedure(case_id: int, procedure_id: int) -> dict[str, str]:
+    """Delete one case_procedures association row by composite key."""
+    with get_connection() as connection:
+        get_case_procedure_or_404(connection, case_id, procedure_id)
+        connection.execute(
+            "DELETE FROM case_procedures WHERE case_id = ? AND procedure_id = ?",
+            (case_id, procedure_id),
+        )
+
+    return {"message": f"Association ({case_id}, {procedure_id}) deleted"}

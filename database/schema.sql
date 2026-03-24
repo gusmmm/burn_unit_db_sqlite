@@ -247,9 +247,31 @@ CREATE TABLE IF NOT EXISTS case_microbiology (
     FOREIGN KEY (specimen_id) REFERENCES microbiology_specimens(id),
     FOREIGN KEY (microorganism_id) REFERENCES microbiology_agents(id)
 );
--- Table: procedures
+
+------------------------------------------------
+-- Table: medical_procedures
+CREATE TABLE IF NOT EXISTS medical_procedures (
+    id INTEGER PRIMARY KEY,
+    snomed_ct_code TEXT NOT NULL, -- SNOMED-CT Concept ID
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 -- Table: case_procedures
--- Table: complications
--- Table: case_complications
+CREATE TABLE IF NOT EXISTS case_procedures (
+    case_id INTEGER NOT NULL,
+    procedure_id INTEGER NOT NULL,
+    date_started DATE,
+    date_stopped DATE,
+    note TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (case_id, procedure_id),
+    FOREIGN KEY (case_id) REFERENCES burn_unit_cases(id),
+    FOREIGN KEY (procedure_id) REFERENCES medical_procedures(id)
+);
 -- Table: interventions
 -- Table: case_interventions
+-- Table: complications
+-- Table: case_complications

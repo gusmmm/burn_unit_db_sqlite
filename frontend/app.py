@@ -405,7 +405,9 @@ def refresh_data() -> None:
     load_infections.clear()
     load_case_infections.clear()
     load_case_antibiotics.clear()
+    load_case_procedures.clear()
     load_case_microbiology.clear()
+    load_medical_procedures.clear()
     load_microbiology_specimens.clear()
     load_microbiology_agents.clear()
     st.rerun()
@@ -2424,6 +2426,16 @@ def load_case_microbiology(case_id: int | None = None) -> list[dict[str, Any]]:
         raise RuntimeError(f"Could not load case microbiology: {data}")
     return data
 
+
+@st.cache_data(ttl=5)
+def load_case_procedures(case_id: int | None = None) -> list[dict[str, Any]]:
+    """Load case_procedures from API optionally filtered by case_id."""
+    path = f"/case-procedures?case_id={case_id}" if case_id is not None else "/case-procedures"
+    status, data = request_json("GET", path)
+    if status != 200:
+        raise RuntimeError(f"Could not load case procedures: {data}")
+    return data
+
 @st.cache_data(ttl=5)
 def load_burn_depths() -> list[dict[str, Any]]:
     status, data = request_json("GET", "/burn-depths")
@@ -3252,6 +3264,187 @@ def render_case_microbiology_section(selected_case: dict[str, Any]) -> None:
 
     card_close()
 
+
+def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
+    """Render case-specific CRUD for case_procedures linked to selected burn unit case."""
+    card_open()
+    section_title("Case Procedures")
+    selected_case_id = selected_case["id"]
+    try:
+        case_procedures = load_case_procedures(case_id=selected_case_id)
+        medical_procedures = load_medical_procedures()
+    except Exception as exc:
+        st.error(str(exc))
+        card_close()
+        return
+
+    procedures_by_id = {row["id"]: row for row in medical_procedures if row.get("id") is not None}
+    procedure_options = [
+        {"id": row["id"], "label": medical_procedure_label(row)}
+        for row in medical_procedures
+        if row.get("id") is not None
+    ]
+
+    if not case_procedures:
+        st.info("No procedures recorded for this case.")
+    else:
+        enriched_rows: list[dict[str, Any]] = []
+        for row in case_procedures:
+            procedure = procedures_by_id.get(row.get("procedure_id"), {})
+            enriched_rows.append(
+                {
+                    "Procedure": (
+                        f"[{row.get('procedure_id')}] "
+                        f"{procedure.get('name', 'Unknown procedure')}"
+                    ),
+                    "Date started": row.get("date_started") or "",
+                    "Date stopped": row.get("date_stopped") or "",
+                    "Note": row.get("note") or "",
+                }
+            )
+        st.dataframe(enriched_rows, hide_index=True, width="stretch")
+
+    op_tabs = st.tabs(["Add", "Edit", "Delete"])
+
+    with op_tabs[0]:
+        with st.form("create_case_procedure_form"):
+            if not procedure_options:
+                st.info("No medical procedures available. Create them in Medical Procedures.")
+                st.form_submit_button("Add Case Procedure", disabled=True)
+            else:
+                selected_procedure = st.selectbox(
+                    "Procedure",
+                    options=procedure_options,
+                    format_func=lambda option: option["label"],
+                    key="create_case_procedure_procedure_select",
+                )
+                date_started = st.text_input("Date started (YYYY-MM-DD)", placeholder="Optional")
+                date_stopped = st.text_input("Date stopped (YYYY-MM-DD)", placeholder="Optional")
+                note = st.text_area("Note", placeholder="Optional")
+
+                if st.form_submit_button("Add Case Procedure"):
+                    try:
+                        parsed_date_started = parse_optional_date_input(date_started)
+                        parsed_date_stopped = parse_optional_date_input(date_stopped)
+                    except ValueError:
+                        st.error("Dates must use YYYY-MM-DD format.")
+                    else:
+                        payload = {
+                            "case_id": selected_case_id,
+                            "procedure_id": selected_procedure["id"],
+                            "date_started": parsed_date_started,
+                            "date_stopped": parsed_date_stopped,
+                            "note": optional_text(note),
+                        }
+                        status_code, data = request_json("POST", "/case-procedures", payload)
+                        show_api_result(status_code, data)
+                        if 200 <= status_code < 300:
+                            load_case_procedures.clear()
+                            st.rerun()
+
+    with op_tabs[1]:
+        if case_procedures:
+            with st.form("edit_case_procedure_form"):
+                assoc_options = [
+                    {
+                        "case_id": row["case_id"],
+                        "procedure_id": row["procedure_id"],
+                        "date_started": row.get("date_started") or "",
+                        "date_stopped": row.get("date_stopped") or "",
+                        "note": row.get("note") or "",
+                        "label": (
+                            f"{row['case_id']} / {row['procedure_id']} - "
+                            f"{procedures_by_id.get(row['procedure_id'], {}).get('name', 'Unknown procedure')}"
+                        ),
+                    }
+                    for row in case_procedures
+                ]
+                selected_assoc = st.selectbox(
+                    "Select case procedure",
+                    options=assoc_options,
+                    format_func=lambda option: option["label"],
+                    key="edit_case_procedure_target_select",
+                )
+
+                edit_procedure_index = find_index_by_key(
+                    procedure_options,
+                    "id",
+                    selected_assoc["procedure_id"],
+                )
+
+                edited_procedure = st.selectbox(
+                    "Procedure",
+                    options=procedure_options,
+                    format_func=lambda option: option["label"],
+                    index=edit_procedure_index,
+                    key="edit_case_procedure_procedure_select",
+                )
+                patch_date_started = st.text_input(
+                    "Update date started (YYYY-MM-DD)",
+                    value=selected_assoc.get("date_started", ""),
+                )
+                patch_date_stopped = st.text_input(
+                    "Update date stopped (YYYY-MM-DD)",
+                    value=selected_assoc.get("date_stopped", ""),
+                )
+                patch_note = st.text_area("Update note", value=selected_assoc.get("note", ""))
+
+                if st.form_submit_button("Update Case Procedure"):
+                    try:
+                        parsed_date_started = parse_optional_date_input(patch_date_started)
+                        parsed_date_stopped = parse_optional_date_input(patch_date_stopped)
+                    except ValueError:
+                        st.error("Dates must use YYYY-MM-DD format.")
+                    else:
+                        payload = {
+                            "procedure_id": edited_procedure["id"],
+                            "date_started": parsed_date_started,
+                            "date_stopped": parsed_date_stopped,
+                            "note": optional_text(patch_note),
+                        }
+                        status_code, data = request_json(
+                            "PATCH",
+                            f"/case-procedures/{selected_assoc['case_id']}/{selected_assoc['procedure_id']}",
+                            payload,
+                        )
+                        show_api_result(status_code, data)
+                        if 200 <= status_code < 300:
+                            load_case_procedures.clear()
+                            st.rerun()
+
+    with op_tabs[2]:
+        if case_procedures:
+            with st.form("delete_case_procedure_form"):
+                assoc_options = [
+                    {
+                        "case_id": row["case_id"],
+                        "procedure_id": row["procedure_id"],
+                        "label": (
+                            f"{row['case_id']} / {row['procedure_id']} - "
+                            f"{procedures_by_id.get(row['procedure_id'], {}).get('name', 'Unknown procedure')}"
+                        ),
+                    }
+                    for row in case_procedures
+                ]
+                selected_assoc = st.selectbox(
+                    "Select case procedure to delete",
+                    options=assoc_options,
+                    format_func=lambda option: option["label"],
+                    key="delete_case_procedure_select",
+                )
+
+                if st.form_submit_button("Delete Case Procedure", type="primary"):
+                    status_code, data = request_json(
+                        "DELETE",
+                        f"/case-procedures/{selected_assoc['case_id']}/{selected_assoc['procedure_id']}",
+                    )
+                    show_api_result(status_code, data)
+                    if 200 <= status_code < 300:
+                        load_case_procedures.clear()
+                        st.rerun()
+
+    card_close()
+
 def render_burn_unit_case_future_associations_placeholder() -> None:
     """Reserve space for future burn-case association tables."""
     card_open(compact=True)
@@ -3325,6 +3518,7 @@ def burn_unit_case_overview_tab() -> None:
     render_case_associated_injuries_section(selected_case)
     render_case_infections_section(selected_case)
     render_case_antibiotics_section(selected_case)
+    render_case_procedures_section(selected_case)
     render_case_microbiology_section(selected_case)
 
     render_burn_unit_case_future_associations_placeholder()
@@ -3767,6 +3961,15 @@ def load_microbiology_agents() -> list[dict[str, Any]]:
     return data
 
 
+@st.cache_data(ttl=5)
+def load_medical_procedures() -> list[dict[str, Any]]:
+    """Load all medical procedures from API."""
+    status, data = request_json("GET", "/medical-procedures")
+    if status != 200:
+        raise RuntimeError(f"Could not load medical procedures: {data}")
+    return data
+
+
 def infection_label(infection: dict[str, Any]) -> str:
     """Format an infection for display in selectboxes."""
     return f"{infection['name']} ({infection['id']})"
@@ -3782,6 +3985,12 @@ def microbiology_agent_label(agent: dict[str, Any]) -> str:
     """Format a microbiology agent for display in selectboxes."""
     snomed_code = agent.get("snomed_ct_code") or "-"
     return f"{agent.get('id')} - {agent.get('name')} (SNOMED-CT: {snomed_code})"
+
+
+def medical_procedure_label(procedure: dict[str, Any]) -> str:
+    """Format a medical procedure for display in selectboxes."""
+    snomed_code = procedure.get("snomed_ct_code") or "-"
+    return f"{procedure.get('id')} - {procedure.get('name')} (SNOMED-CT: {snomed_code})"
 
 
 def render_infections_overview(infections: list[dict[str, Any]]) -> None:
@@ -4319,6 +4528,203 @@ def microbiology_agents_tab() -> None:
     render_microbiology_agent_crud_workspace(agents)
 
 
+def render_medical_procedures_overview(procedures: list[dict[str, Any]]) -> None:
+    """Render compact overview and medical procedure list."""
+    cols = st.columns([2, 1])
+    with cols[0]:
+        st.markdown(f"<span class='ui-badge'>Medical Procedures: {len(procedures)}</span>", unsafe_allow_html=True)
+        st.markdown("<span class='ui-badge'>Operations: GET, POST, PUT, PATCH, DELETE</span>", unsafe_allow_html=True)
+    with cols[1]:
+        if st.button("Refresh now", width="stretch", key="refresh_medical_procedures"):
+            refresh_data()
+
+    card_open(compact=True)
+    section_title("Current Medical Procedures")
+    if procedures:
+        st.dataframe(procedures, width="stretch", hide_index=True)
+    else:
+        st.info("No medical procedures available yet.")
+    card_close()
+
+
+def render_medical_procedure_create_tab() -> None:
+    """Render create medical procedure operation."""
+    with st.form("create_medical_procedure_form"):
+        snomed_ct_code = st.text_input("SNOMED-CT code", placeholder="SNOMED-CT concept id")
+        name = st.text_input("Name", placeholder="Procedure name")
+        description = st.text_area("Description", placeholder="Optional")
+        submitted = st.form_submit_button("Create medical procedure", width="stretch")
+
+        if submitted:
+            payload = {
+                "snomed_ct_code": snomed_ct_code.strip(),
+                "name": name.strip(),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("POST", "/medical-procedures", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_medical_procedure_read_tab(procedures: list[dict[str, Any]]) -> None:
+    """Render read single medical procedure operation."""
+    if not procedures:
+        st.info("Create at least one medical procedure to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Select medical procedure",
+        options=procedures,
+        format_func=medical_procedure_label,
+        key="read_medical_procedure_select",
+    )
+    if st.button("Fetch medical procedure", width="stretch"):
+        status_code, data = request_json("GET", f"/medical-procedures/{selected['id']}")
+        show_api_result(status_code, data)
+
+
+def render_medical_procedure_put_tab(procedures: list[dict[str, Any]]) -> None:
+    """Render full replace medical procedure operation."""
+    if not procedures:
+        st.info("Create at least one medical procedure to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Medical procedure to replace",
+        options=procedures,
+        format_func=medical_procedure_label,
+        key="put_medical_procedure_select",
+    )
+
+    with st.form("put_medical_procedure_form"):
+        snomed_ct_code = st.text_input("SNOMED-CT code", value=str(selected.get("snomed_ct_code") or ""))
+        name = st.text_input("Name", value=str(selected.get("name") or ""))
+        description = st.text_area("Description", value=str(selected.get("description") or ""))
+        submitted = st.form_submit_button("Replace medical procedure", width="stretch")
+
+        if submitted:
+            payload = {
+                "snomed_ct_code": snomed_ct_code.strip(),
+                "name": name.strip(),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("PUT", f"/medical-procedures/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_medical_procedure_patch_tab(procedures: list[dict[str, Any]]) -> None:
+    """Render partial update medical procedure operation."""
+    if not procedures:
+        st.info("Create at least one medical procedure to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Medical procedure to patch",
+        options=procedures,
+        format_func=medical_procedure_label,
+        key="patch_medical_procedure_select",
+    )
+
+    with st.form("patch_medical_procedure_form"):
+        use_snomed_code = st.checkbox("Update SNOMED-CT code", key="patch_medical_procedure_use_code")
+        patch_snomed_code = st.text_input(
+            "SNOMED-CT code",
+            value=str(selected.get("snomed_ct_code") or ""),
+            key="patch_medical_procedure_code",
+        )
+
+        use_name = st.checkbox("Update name", key="patch_medical_procedure_use_name")
+        patch_name = st.text_input(
+            "Name",
+            value=str(selected.get("name") or ""),
+            key="patch_medical_procedure_name",
+        )
+
+        use_description = st.checkbox("Update description", key="patch_medical_procedure_use_description")
+        patch_description = st.text_area(
+            "Description",
+            value=str(selected.get("description") or ""),
+            key="patch_medical_procedure_description",
+        )
+
+        submitted = st.form_submit_button("Apply patch", width="stretch")
+
+        if submitted:
+            payload: dict[str, Any] = {}
+            if use_snomed_code:
+                payload["snomed_ct_code"] = patch_snomed_code.strip()
+            if use_name:
+                payload["name"] = patch_name.strip()
+            if use_description:
+                payload["description"] = optional_text(patch_description)
+
+            status_code, data = request_json("PATCH", f"/medical-procedures/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_medical_procedure_delete_tab(procedures: list[dict[str, Any]]) -> None:
+    """Render delete medical procedure operation."""
+    if not procedures:
+        st.info("Create at least one medical procedure to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Medical procedure to delete",
+        options=procedures,
+        format_func=medical_procedure_label,
+        key="delete_medical_procedure_select",
+    )
+    confirm_delete = st.checkbox(
+        "I understand this action cannot be undone",
+        key="delete_medical_procedure_confirm",
+    )
+    if st.button("Delete medical procedure", type="primary", disabled=not confirm_delete, width="stretch"):
+        status_code, data = request_json("DELETE", f"/medical-procedures/{selected['id']}")
+        show_api_result(status_code, data)
+        if 200 <= status_code < 300:
+            refresh_data()
+
+
+def render_medical_procedure_crud_workspace(procedures: list[dict[str, Any]]) -> None:
+    """Render medical procedure CRUD operations in compact tabs."""
+    card_open()
+    section_title("Medical Procedures CRUD Workspace")
+    op_tabs = st.tabs(["Create (POST)", "Read One (GET)", "Replace (PUT)", "Patch (PATCH)", "Delete (DELETE)"])
+
+    with op_tabs[0]:
+        render_medical_procedure_create_tab()
+    with op_tabs[1]:
+        render_medical_procedure_read_tab(procedures)
+    with op_tabs[2]:
+        render_medical_procedure_put_tab(procedures)
+    with op_tabs[3]:
+        render_medical_procedure_patch_tab(procedures)
+    with op_tabs[4]:
+        render_medical_procedure_delete_tab(procedures)
+
+    card_close()
+
+
+def medical_procedures_tab() -> None:
+    """Render medical procedures management UI."""
+    st.subheader("Medical Procedures Management")
+    st.caption(f"Backend API: {API_BASE_URL}")
+
+    try:
+        procedures = load_medical_procedures()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+
+    render_medical_procedures_overview(procedures)
+    render_medical_procedure_crud_workspace(procedures)
+
+
 def main() -> None:
     """Run the Streamlit application."""
     st.set_page_config(page_title="Burn Unit UI", layout="wide")
@@ -4336,6 +4742,7 @@ def main() -> None:
             "Pathologies",
             "Medications",
             "Antibiotics",
+            "Medical Procedures",
             "Microbiology Specimens",
             "Microbiology Agents",
             "Provenance/Destination",
@@ -4358,14 +4765,16 @@ def main() -> None:
     with tabs[6]:
         antibiotics_tab()
     with tabs[7]:
-        microbiology_specimens_tab()
+        medical_procedures_tab()
     with tabs[8]:
-        microbiology_agents_tab()
+        microbiology_specimens_tab()
     with tabs[9]:
-        provenance_destinations_tab()
+        microbiology_agents_tab()
     with tabs[10]:
-        burn_etiologies_tab()
+        provenance_destinations_tab()
     with tabs[11]:
+        burn_etiologies_tab()
+    with tabs[12]:
         infections_tab()
 
 
