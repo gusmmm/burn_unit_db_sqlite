@@ -441,6 +441,43 @@ class CaseInfectionRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class CaseAntibioticCreate(BaseModel):
+    """Payload used for creating a case_antibiotics association row."""
+
+    case_id: int
+    antibiotic_id: int
+    indication: int | None = None
+    date_started: str | None = None
+    date_stopped: str | None = None
+    note: str | None = None
+
+
+class CaseAntibioticPatch(BaseModel):
+    """Payload used for partially updating a case_antibiotics association row."""
+
+    case_id: int | None = None
+    antibiotic_id: int | None = None
+    indication: int | None = None
+    date_started: str | None = None
+    date_stopped: str | None = None
+    note: str | None = None
+
+
+class CaseAntibioticRead(BaseModel):
+    """Response model representing a case_antibiotics association row."""
+
+    case_id: int
+    antibiotic_id: int
+    indication: int | None = None
+    date_started: str | None = None
+    date_stopped: str | None = None
+    note: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
 class CaseAssociatedInjuryCreate(BaseModel):
     """Payload used for creating a case_associated_injuries association row."""
 
@@ -528,6 +565,133 @@ class InfectionRead(BaseModel):
     id: int
     name: str
     description: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MicrobiologySpecimenCreate(BaseModel):
+    """Payload used for creating a microbiology specimen row."""
+
+    loinc_code: str
+    specimen_type: str
+    note: str | None = None
+
+
+class MicrobiologySpecimenWrite(BaseModel):
+    """Payload used for replacing editable microbiology specimen fields."""
+
+    loinc_code: str
+    specimen_type: str
+    note: str | None = None
+
+
+class MicrobiologySpecimenPatch(BaseModel):
+    """Payload used for partially updating microbiology specimen fields."""
+
+    loinc_code: str | None = None
+    specimen_type: str | None = None
+    note: str | None = None
+
+
+class MicrobiologySpecimenRead(BaseModel):
+    """Response model representing a microbiology_specimens row."""
+
+    id: int
+    loinc_code: str
+    specimen_type: str
+    note: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MicrobiologyAgentCreate(BaseModel):
+    """Payload used for creating a microbiology agent row."""
+
+    snomed_ct_code: str
+    name: str
+    description: str | None = None
+
+
+class MicrobiologyAgentWrite(BaseModel):
+    """Payload used for replacing editable microbiology agent fields."""
+
+    snomed_ct_code: str
+    name: str
+    description: str | None = None
+
+
+class MicrobiologyAgentPatch(BaseModel):
+    """Payload used for partially updating microbiology agent fields."""
+
+    snomed_ct_code: str | None = None
+    name: str | None = None
+    description: str | None = None
+
+
+class MicrobiologyAgentRead(BaseModel):
+    """Response model representing a microbiology_agents row."""
+
+    id: int
+    snomed_ct_code: str
+    name: str
+    description: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CaseMicrobiologyCreate(BaseModel):
+    """Payload used for creating a case_microbiology row."""
+
+    case_id: int
+    specimen_id: int
+    microorganism_id: int
+    hospital_test_id: str | None = None
+    date_of_collection: str | None = None
+    date_of_reporting: str | None = None
+    note: str | None = None
+
+
+class CaseMicrobiologyWrite(BaseModel):
+    """Payload used for replacing editable case_microbiology fields."""
+
+    case_id: int
+    specimen_id: int
+    microorganism_id: int
+    hospital_test_id: str | None = None
+    date_of_collection: str | None = None
+    date_of_reporting: str | None = None
+    note: str | None = None
+
+
+class CaseMicrobiologyPatch(BaseModel):
+    """Payload used for partially updating case_microbiology fields."""
+
+    case_id: int | None = None
+    specimen_id: int | None = None
+    microorganism_id: int | None = None
+    hospital_test_id: str | None = None
+    date_of_collection: str | None = None
+    date_of_reporting: str | None = None
+    note: str | None = None
+
+
+class CaseMicrobiologyRead(BaseModel):
+    """Response model representing a case_microbiology row."""
+
+    id: int
+    case_id: int
+    specimen_id: int
+    microorganism_id: int
+    hospital_test_id: str | None = None
+    date_of_collection: str | None = None
+    date_of_reporting: str | None = None
+    note: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -737,6 +901,25 @@ def get_case_infection_or_404(
     return dict(row)
 
 
+def get_case_antibiotic_or_404(
+    connection: sqlite3.Connection,
+    case_id: int,
+    antibiotic_id: int,
+) -> dict[str, Any]:
+    """Fetch a case_antibiotics association row by composite key or raise 404 if not found."""
+    row = connection.execute(
+        """
+        SELECT *
+        FROM case_antibiotics
+        WHERE case_id = ? AND antibiotic_id = ?
+        """,
+        (case_id, antibiotic_id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Case antibiotic association not found")
+    return dict(row)
+
+
 def get_infection_or_404(connection: sqlite3.Connection, infection_id: int) -> dict[str, Any]:
     """Fetch an infection by id or raise 404 if not found."""
     row = connection.execute(
@@ -745,6 +928,48 @@ def get_infection_or_404(connection: sqlite3.Connection, infection_id: int) -> d
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Infection not found")
+    return dict(row)
+
+
+def get_microbiology_specimen_or_404(
+    connection: sqlite3.Connection,
+    specimen_id: int,
+) -> dict[str, Any]:
+    """Fetch a microbiology specimen by id or raise 404 if not found."""
+    row = connection.execute(
+        "SELECT * FROM microbiology_specimens WHERE id = ?",
+        (specimen_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Microbiology specimen not found")
+    return dict(row)
+
+
+def get_microbiology_agent_or_404(
+    connection: sqlite3.Connection,
+    microorganism_id: int,
+) -> dict[str, Any]:
+    """Fetch a microbiology agent by id or raise 404 if not found."""
+    row = connection.execute(
+        "SELECT * FROM microbiology_agents WHERE id = ?",
+        (microorganism_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Microbiology agent not found")
+    return dict(row)
+
+
+def get_case_microbiology_or_404(
+    connection: sqlite3.Connection,
+    case_microbiology_id: int,
+) -> dict[str, Any]:
+    """Fetch a case_microbiology row by id or raise 404 if not found."""
+    row = connection.execute(
+        "SELECT * FROM case_microbiology WHERE id = ?",
+        (case_microbiology_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Case microbiology row not found")
     return dict(row)
 
 
@@ -760,6 +985,9 @@ def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
         "burn_etiology",
         "burn_unit_cases",
         "infections",
+        "microbiology_specimens",
+        "microbiology_agents",
+        "case_microbiology",
     }:
         query += " ORDER BY id"
 
@@ -783,7 +1011,7 @@ def read_root() -> dict[str, str]:
         "endpoints": (
             "/patients, /addresses, /pathologies, /patient-pathologies, /medications, "
             "/patient-medications, /provenance-destinations, /burn-etiologies, /burn-unit-cases, "
-            "/infections, /antibiotics"
+            "/infections, /antibiotics, /microbiology-specimens, /microbiology-agents, /case-microbiology"
         ),
     }
 
@@ -2446,6 +2674,160 @@ def delete_case_infection(case_id: int, infection_id: int) -> dict[str, str]:
     return {"message": f"Association ({case_id}, {infection_id}) deleted"}
 
 
+@app.get("/case-antibiotics", tags=["case_antibiotics"], response_model=list[CaseAntibioticRead])
+def get_case_antibiotics(case_id: int | None = None) -> list[dict[str, Any]]:
+    """Return case_antibiotics optionally filtered by case_id."""
+    with get_connection() as connection:
+        if case_id is not None:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM case_antibiotics
+                WHERE case_id = ?
+                ORDER BY case_id, antibiotic_id
+                """,
+                (case_id,),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT * FROM case_antibiotics ORDER BY case_id, antibiotic_id"
+            ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.get(
+    "/case-antibiotics/{case_id}/{antibiotic_id}",
+    tags=["case_antibiotics"],
+    response_model=CaseAntibioticRead,
+)
+def get_case_antibiotic(case_id: int, antibiotic_id: int) -> dict[str, Any]:
+    """Return one case_antibiotics association by composite key."""
+    with get_connection() as connection:
+        return get_case_antibiotic_or_404(connection, case_id, antibiotic_id)
+
+
+@app.post(
+    "/case-antibiotics",
+    tags=["case_antibiotics"],
+    response_model=CaseAntibioticRead,
+    status_code=201,
+)
+def create_case_antibiotic(payload: CaseAntibioticCreate) -> dict[str, Any]:
+    """Create a case_antibiotics association and return the inserted row."""
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO case_antibiotics (
+                    case_id,
+                    antibiotic_id,
+                    indication,
+                    date_started,
+                    date_stopped,
+                    note
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload.case_id,
+                    payload.antibiotic_id,
+                    payload.indication,
+                    payload.date_started,
+                    payload.date_stopped,
+                    payload.note,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT *
+                FROM case_antibiotics
+                WHERE case_id = ? AND antibiotic_id = ?
+                """,
+                (payload.case_id, payload.antibiotic_id),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid case_antibiotics data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Association created but could not be read back")
+    return dict(row)
+
+
+@app.patch(
+    "/case-antibiotics/{case_id}/{antibiotic_id}",
+    tags=["case_antibiotics"],
+    response_model=CaseAntibioticRead,
+)
+def patch_case_antibiotic(
+    case_id: int,
+    antibiotic_id: int,
+    payload: CaseAntibioticPatch,
+) -> dict[str, Any]:
+    """Partially update a case_antibiotics association row by composite key."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {
+        "case_id",
+        "antibiotic_id",
+        "indication",
+        "date_started",
+        "date_stopped",
+        "note",
+    }
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.extend([case_id, antibiotic_id])
+
+    query = f"UPDATE case_antibiotics SET {', '.join(assignments)} WHERE case_id = ? AND antibiotic_id = ?"
+
+    new_case_id = updates.get("case_id", case_id)
+    new_antibiotic_id = updates.get("antibiotic_id", antibiotic_id)
+
+    try:
+        with get_connection() as connection:
+            get_case_antibiotic_or_404(connection, case_id, antibiotic_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                """
+                SELECT *
+                FROM case_antibiotics
+                WHERE case_id = ? AND antibiotic_id = ?
+                """,
+                (new_case_id, new_antibiotic_id),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid case_antibiotics data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Association updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/case-antibiotics/{case_id}/{antibiotic_id}", tags=["case_antibiotics"])
+def delete_case_antibiotic(case_id: int, antibiotic_id: int) -> dict[str, str]:
+    """Delete one case_antibiotics association row by composite key."""
+    with get_connection() as connection:
+        get_case_antibiotic_or_404(connection, case_id, antibiotic_id)
+        connection.execute(
+            "DELETE FROM case_antibiotics WHERE case_id = ? AND antibiotic_id = ?",
+            (case_id, antibiotic_id),
+        )
+
+    return {"message": f"Association ({case_id}, {antibiotic_id}) deleted"}
+
+
 
 # ==========================================
 # CASE ASSOCIATED INJURIES (case_associated_injuries)
@@ -2663,3 +3045,477 @@ def delete_infection(infection_id: int) -> dict[str, str]:
         ) from exc
 
     return {"message": f"Infection {infection_id} deleted"}
+
+
+@app.get("/microbiology-specimens", tags=["microbiology_specimens"], response_model=list[MicrobiologySpecimenRead])
+def get_microbiology_specimens() -> list[dict[str, Any]]:
+    """Return every microbiology specimen row from the microbiology_specimens table."""
+    return fetch_all_rows("microbiology_specimens")
+
+
+@app.get(
+    "/microbiology-specimens/{specimen_id}",
+    tags=["microbiology_specimens"],
+    response_model=MicrobiologySpecimenRead,
+)
+def get_microbiology_specimen(specimen_id: int) -> dict[str, Any]:
+    """Return one microbiology specimen row by id."""
+    with get_connection() as connection:
+        return get_microbiology_specimen_or_404(connection, specimen_id)
+
+
+@app.post(
+    "/microbiology-specimens",
+    tags=["microbiology_specimens"],
+    response_model=MicrobiologySpecimenRead,
+    status_code=201,
+)
+def create_microbiology_specimen(payload: MicrobiologySpecimenCreate) -> dict[str, Any]:
+    """Create a new microbiology specimen row and return the inserted record."""
+    try:
+        with get_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO microbiology_specimens (loinc_code, specimen_type, note)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    payload.loinc_code,
+                    payload.specimen_type,
+                    payload.note,
+                ),
+            )
+            specimen_id = cursor.lastrowid
+            row = connection.execute(
+                "SELECT * FROM microbiology_specimens WHERE id = ?",
+                (specimen_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid microbiology specimen data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Microbiology specimen created but could not be read back")
+    return dict(row)
+
+
+@app.put(
+    "/microbiology-specimens/{specimen_id}",
+    tags=["microbiology_specimens"],
+    response_model=MicrobiologySpecimenRead,
+)
+def update_microbiology_specimen(specimen_id: int, payload: MicrobiologySpecimenWrite) -> dict[str, Any]:
+    """Replace microbiology specimen editable fields by id and return the updated record."""
+    try:
+        with get_connection() as connection:
+            get_microbiology_specimen_or_404(connection, specimen_id)
+            connection.execute(
+                """
+                UPDATE microbiology_specimens
+                SET loinc_code = ?,
+                    specimen_type = ?,
+                    note = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    payload.loinc_code,
+                    payload.specimen_type,
+                    payload.note,
+                    specimen_id,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM microbiology_specimens WHERE id = ?",
+                (specimen_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid microbiology specimen data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Microbiology specimen updated but could not be read back")
+    return dict(row)
+
+
+@app.patch(
+    "/microbiology-specimens/{specimen_id}",
+    tags=["microbiology_specimens"],
+    response_model=MicrobiologySpecimenRead,
+)
+def patch_microbiology_specimen(specimen_id: int, payload: MicrobiologySpecimenPatch) -> dict[str, Any]:
+    """Partially update microbiology specimen fields by id and return the updated record."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {"loinc_code", "specimen_type", "note"}
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.append(specimen_id)
+    query = f"UPDATE microbiology_specimens SET {', '.join(assignments)} WHERE id = ?"
+
+    try:
+        with get_connection() as connection:
+            get_microbiology_specimen_or_404(connection, specimen_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                "SELECT * FROM microbiology_specimens WHERE id = ?",
+                (specimen_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid microbiology specimen data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Microbiology specimen updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/microbiology-specimens/{specimen_id}", tags=["microbiology_specimens"])
+def delete_microbiology_specimen(specimen_id: int) -> dict[str, str]:
+    """Delete one microbiology specimen by id when no child rows block the operation."""
+    try:
+        with get_connection() as connection:
+            get_microbiology_specimen_or_404(connection, specimen_id)
+            connection.execute("DELETE FROM microbiology_specimens WHERE id = ?", (specimen_id,))
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete microbiology specimen because it is referenced by related data: {exc}",
+        ) from exc
+
+    return {"message": f"Microbiology specimen {specimen_id} deleted"}
+
+
+@app.get("/microbiology-agents", tags=["microbiology_agents"], response_model=list[MicrobiologyAgentRead])
+def get_microbiology_agents() -> list[dict[str, Any]]:
+    """Return every microbiology agent row from the microbiology_agents table."""
+    return fetch_all_rows("microbiology_agents")
+
+
+@app.get(
+    "/microbiology-agents/{microorganism_id}",
+    tags=["microbiology_agents"],
+    response_model=MicrobiologyAgentRead,
+)
+def get_microbiology_agent(microorganism_id: int) -> dict[str, Any]:
+    """Return one microbiology agent row by id."""
+    with get_connection() as connection:
+        return get_microbiology_agent_or_404(connection, microorganism_id)
+
+
+@app.post(
+    "/microbiology-agents",
+    tags=["microbiology_agents"],
+    response_model=MicrobiologyAgentRead,
+    status_code=201,
+)
+def create_microbiology_agent(payload: MicrobiologyAgentCreate) -> dict[str, Any]:
+    """Create a new microbiology agent row and return the inserted record."""
+    try:
+        with get_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO microbiology_agents (snomed_ct_code, name, description)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    payload.snomed_ct_code,
+                    payload.name,
+                    payload.description,
+                ),
+            )
+            microorganism_id = cursor.lastrowid
+            row = connection.execute(
+                "SELECT * FROM microbiology_agents WHERE id = ?",
+                (microorganism_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid microbiology agent data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Microbiology agent created but could not be read back")
+    return dict(row)
+
+
+@app.put(
+    "/microbiology-agents/{microorganism_id}",
+    tags=["microbiology_agents"],
+    response_model=MicrobiologyAgentRead,
+)
+def update_microbiology_agent(microorganism_id: int, payload: MicrobiologyAgentWrite) -> dict[str, Any]:
+    """Replace microbiology agent editable fields by id and return the updated record."""
+    try:
+        with get_connection() as connection:
+            get_microbiology_agent_or_404(connection, microorganism_id)
+            connection.execute(
+                """
+                UPDATE microbiology_agents
+                SET snomed_ct_code = ?,
+                    name = ?,
+                    description = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    payload.snomed_ct_code,
+                    payload.name,
+                    payload.description,
+                    microorganism_id,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM microbiology_agents WHERE id = ?",
+                (microorganism_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid microbiology agent data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Microbiology agent updated but could not be read back")
+    return dict(row)
+
+
+@app.patch(
+    "/microbiology-agents/{microorganism_id}",
+    tags=["microbiology_agents"],
+    response_model=MicrobiologyAgentRead,
+)
+def patch_microbiology_agent(microorganism_id: int, payload: MicrobiologyAgentPatch) -> dict[str, Any]:
+    """Partially update microbiology agent fields by id and return the updated record."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {"snomed_ct_code", "name", "description"}
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.append(microorganism_id)
+    query = f"UPDATE microbiology_agents SET {', '.join(assignments)} WHERE id = ?"
+
+    try:
+        with get_connection() as connection:
+            get_microbiology_agent_or_404(connection, microorganism_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                "SELECT * FROM microbiology_agents WHERE id = ?",
+                (microorganism_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid microbiology agent data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Microbiology agent updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/microbiology-agents/{microorganism_id}", tags=["microbiology_agents"])
+def delete_microbiology_agent(microorganism_id: int) -> dict[str, str]:
+    """Delete one microbiology agent by id when no child rows block the operation."""
+    try:
+        with get_connection() as connection:
+            get_microbiology_agent_or_404(connection, microorganism_id)
+            connection.execute("DELETE FROM microbiology_agents WHERE id = ?", (microorganism_id,))
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete microbiology agent because it is referenced by related data: {exc}",
+        ) from exc
+
+    return {"message": f"Microbiology agent {microorganism_id} deleted"}
+
+
+@app.get("/case-microbiology", tags=["case_microbiology"], response_model=list[CaseMicrobiologyRead])
+def get_case_microbiology(case_id: int | None = None) -> list[dict[str, Any]]:
+    """Return case_microbiology rows optionally filtered by case_id."""
+    with get_connection() as connection:
+        if case_id is not None:
+            rows = connection.execute(
+                "SELECT * FROM case_microbiology WHERE case_id = ? ORDER BY id",
+                (case_id,),
+            ).fetchall()
+        else:
+            rows = connection.execute("SELECT * FROM case_microbiology ORDER BY id").fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.get(
+    "/case-microbiology/{case_microbiology_id}",
+    tags=["case_microbiology"],
+    response_model=CaseMicrobiologyRead,
+)
+def get_case_microbiology_row(case_microbiology_id: int) -> dict[str, Any]:
+    """Return one case_microbiology row by id."""
+    with get_connection() as connection:
+        return get_case_microbiology_or_404(connection, case_microbiology_id)
+
+
+@app.post(
+    "/case-microbiology",
+    tags=["case_microbiology"],
+    response_model=CaseMicrobiologyRead,
+    status_code=201,
+)
+def create_case_microbiology(payload: CaseMicrobiologyCreate) -> dict[str, Any]:
+    """Create a new case_microbiology row and return the inserted record."""
+    try:
+        with get_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO case_microbiology (
+                    case_id,
+                    specimen_id,
+                    microorganism_id,
+                    hospital_test_id,
+                    date_of_collection,
+                    date_of_reporting,
+                    note
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload.case_id,
+                    payload.specimen_id,
+                    payload.microorganism_id,
+                    payload.hospital_test_id,
+                    payload.date_of_collection,
+                    payload.date_of_reporting,
+                    payload.note,
+                ),
+            )
+            case_microbiology_id = cursor.lastrowid
+            row = connection.execute(
+                "SELECT * FROM case_microbiology WHERE id = ?",
+                (case_microbiology_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid case_microbiology data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Case microbiology row created but could not be read back")
+    return dict(row)
+
+
+@app.put(
+    "/case-microbiology/{case_microbiology_id}",
+    tags=["case_microbiology"],
+    response_model=CaseMicrobiologyRead,
+)
+def update_case_microbiology(case_microbiology_id: int, payload: CaseMicrobiologyWrite) -> dict[str, Any]:
+    """Replace case_microbiology editable fields by id and return the updated record."""
+    try:
+        with get_connection() as connection:
+            get_case_microbiology_or_404(connection, case_microbiology_id)
+            connection.execute(
+                """
+                UPDATE case_microbiology
+                SET case_id = ?,
+                    specimen_id = ?,
+                    microorganism_id = ?,
+                    hospital_test_id = ?,
+                    date_of_collection = ?,
+                    date_of_reporting = ?,
+                    note = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    payload.case_id,
+                    payload.specimen_id,
+                    payload.microorganism_id,
+                    payload.hospital_test_id,
+                    payload.date_of_collection,
+                    payload.date_of_reporting,
+                    payload.note,
+                    case_microbiology_id,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM case_microbiology WHERE id = ?",
+                (case_microbiology_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid case_microbiology data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Case microbiology row updated but could not be read back")
+    return dict(row)
+
+
+@app.patch(
+    "/case-microbiology/{case_microbiology_id}",
+    tags=["case_microbiology"],
+    response_model=CaseMicrobiologyRead,
+)
+def patch_case_microbiology(case_microbiology_id: int, payload: CaseMicrobiologyPatch) -> dict[str, Any]:
+    """Partially update case_microbiology fields by id and return the updated record."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+
+    allowed_fields = {
+        "case_id",
+        "specimen_id",
+        "microorganism_id",
+        "hospital_test_id",
+        "date_of_collection",
+        "date_of_reporting",
+        "note",
+    }
+    assignments: list[str] = []
+    values: list[Any] = []
+    for field, value in updates.items():
+        if field not in allowed_fields:
+            continue
+        assignments.append(f"{field} = ?")
+        values.append(value)
+
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No valid fields provided to update")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values.append(case_microbiology_id)
+    query = f"UPDATE case_microbiology SET {', '.join(assignments)} WHERE id = ?"
+
+    try:
+        with get_connection() as connection:
+            get_case_microbiology_or_404(connection, case_microbiology_id)
+            connection.execute(query, values)
+            row = connection.execute(
+                "SELECT * FROM case_microbiology WHERE id = ?",
+                (case_microbiology_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid case_microbiology data: {exc}") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Case microbiology row updated but could not be read back")
+    return dict(row)
+
+
+@app.delete("/case-microbiology/{case_microbiology_id}", tags=["case_microbiology"])
+def delete_case_microbiology(case_microbiology_id: int) -> dict[str, str]:
+    """Delete one case_microbiology row by id."""
+    with get_connection() as connection:
+        get_case_microbiology_or_404(connection, case_microbiology_id)
+        connection.execute("DELETE FROM case_microbiology WHERE id = ?", (case_microbiology_id,))
+
+    return {"message": f"Case microbiology row {case_microbiology_id} deleted"}

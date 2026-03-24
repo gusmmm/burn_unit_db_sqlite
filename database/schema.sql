@@ -212,8 +212,41 @@ CREATE TABLE IF NOT EXISTS case_antibiotics (
     FOREIGN KEY (antibiotic_id) REFERENCES antibiotics(id),
     FOREIGN KEY (indication) REFERENCES infections(id)
 );
--- Table: microbiology
+---------------------------------------------------
+-- Table: microbiology_specimens
+CREATE TABLE IF NOT EXISTS microbiology_specimens (
+    id INTEGER PRIMARY KEY,
+    loinc_code TEXT NOT NULL, 
+    specimen_type TEXT NOT NULL,
+    note TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+-- Table: microbiology_agents
+CREATE TABLE IF NOT EXISTS microbiology_agents (
+    id INTEGER PRIMARY KEY,
+    snomed_ct_code TEXT NOT NULL, -- SNOMED-CT Concept ID
+    name TEXT NOT NULL, -- Name of microorganism (e.g., Staphylococcus aureus)
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 -- Table: case_microbiology
+CREATE TABLE IF NOT EXISTS case_microbiology (
+    id INTEGER PRIMARY KEY,
+    case_id INTEGER NOT NULL,
+    specimen_id INTEGER NOT NULL,
+    microorganism_id INTEGER NOT NULL,
+    hospital_test_id TEXT, -- Hospital identifier for specimen
+    date_of_collection DATE,
+    date_of_reporting DATE,
+    note TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (case_id) REFERENCES burn_unit_cases(id),
+    FOREIGN KEY (specimen_id) REFERENCES microbiology_specimens(id),
+    FOREIGN KEY (microorganism_id) REFERENCES microbiology_agents(id)
+);
 -- Table: procedures
 -- Table: case_procedures
 -- Table: complications

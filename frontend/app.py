@@ -404,6 +404,10 @@ def refresh_data() -> None:
     load_burn_unit_cases.clear()
     load_infections.clear()
     load_case_infections.clear()
+    load_case_antibiotics.clear()
+    load_case_microbiology.clear()
+    load_microbiology_specimens.clear()
+    load_microbiology_agents.clear()
     st.rerun()
 
 
@@ -2400,6 +2404,26 @@ def load_case_infections(case_id: int | None = None) -> list[dict[str, Any]]:
         raise RuntimeError(f"Could not load case infections: {data}")
     return data
 
+
+@st.cache_data(ttl=5)
+def load_case_antibiotics(case_id: int | None = None) -> list[dict[str, Any]]:
+    """Load case_antibiotics from API optionally filtered by case_id."""
+    path = f"/case-antibiotics?case_id={case_id}" if case_id is not None else "/case-antibiotics"
+    status, data = request_json("GET", path)
+    if status != 200:
+        raise RuntimeError(f"Could not load case antibiotics: {data}")
+    return data
+
+
+@st.cache_data(ttl=5)
+def load_case_microbiology(case_id: int | None = None) -> list[dict[str, Any]]:
+    """Load case_microbiology from API optionally filtered by case_id."""
+    path = f"/case-microbiology?case_id={case_id}" if case_id is not None else "/case-microbiology"
+    status, data = request_json("GET", path)
+    if status != 200:
+        raise RuntimeError(f"Could not load case microbiology: {data}")
+    return data
+
 @st.cache_data(ttl=5)
 def load_burn_depths() -> list[dict[str, Any]]:
     status, data = request_json("GET", "/burn-depths")
@@ -2796,13 +2820,445 @@ def render_case_infections_section(selected_case: dict[str, Any]) -> None:
 
     card_close()
 
+
+def render_case_antibiotics_section(selected_case: dict[str, Any]) -> None:
+    """Render case-specific CRUD for case_antibiotics linked to selected burn unit case."""
+    card_open()
+    section_title("Case Antibiotics")
+    selected_case_id = selected_case["id"]
+    try:
+        case_antibiotics = load_case_antibiotics(case_id=selected_case_id)
+        antibiotics = load_antibiotics()
+        infections = load_infections()
+    except Exception as exc:
+        st.error(str(exc))
+        card_close()
+        return
+    antibiotics_by_id = {row["id"]: row for row in antibiotics if row.get("id") is not None}
+    antibiotic_options = [
+        {"id": row["id"], "label": antibiotic_label(row)}
+        for row in antibiotics
+        if row.get("id") is not None
+    ]
+    infections_by_id = {row["id"]: row for row in infections if row.get("id") is not None}
+    indication_options = [{"id": None, "label": "No indication"}] + [
+        {"id": row["id"], "label": f"{row['id']} - {row.get('name', 'Unnamed infection')}"}
+        for row in infections
+        if row.get("id") is not None
+    ]
+
+    if not case_antibiotics:
+        st.info("No antibiotics recorded for this case.")
+    else:
+        enriched_rows: list[dict[str, Any]] = []
+        for row in case_antibiotics:
+            antibiotic = antibiotics_by_id.get(row.get("antibiotic_id"), {})
+            indication = infections_by_id.get(row.get("indication"), {})
+            enriched_rows.append(
+                {
+                    "Antibiotic": (
+                        f"[{row.get('antibiotic_id')}] "
+                        f"{antibiotic.get('name', 'Unknown antibiotic')}"
+                    ),
+                    "Indication": (
+                        ""
+                        if row.get("indication") is None
+                        else f"[{row.get('indication')}] {indication.get('name', 'Unknown infection')}"
+                    ),
+                    "Date started": row.get("date_started") or "",
+                    "Date stopped": row.get("date_stopped") or "",
+                    "Note": row.get("note") or "",
+                }
+            )
+        st.dataframe(enriched_rows, hide_index=True, width="stretch")
+
+    op_tabs = st.tabs(["Add", "Edit", "Delete"])
+
+    with op_tabs[0]:
+        with st.form("create_case_antibiotic_form"):
+            if not antibiotic_options:
+                st.info("No antibiotics available. Create antibiotics first in the Antibiotics tab.")
+            else:
+                selected_antibiotic = st.selectbox(
+                    "Antibiotic",
+                    options=antibiotic_options,
+                    format_func=lambda option: option["label"],
+                    key="create_case_antibiotic_antibiotic_select",
+                )
+                selected_indication = st.selectbox(
+                    "Indication",
+                    options=indication_options,
+                    format_func=lambda option: option["label"],
+                    key="create_case_antibiotic_indication_select",
+                )
+                date_started = st.text_input("Date started (YYYY-MM-DD)", placeholder="Optional")
+                date_stopped = st.text_input("Date stopped (YYYY-MM-DD)", placeholder="Optional")
+                note = st.text_area("Note", placeholder="Optional")
+
+                if st.form_submit_button("Add Case Antibiotic"):
+                    try:
+                        parsed_date_started = parse_optional_date_input(date_started)
+                        parsed_date_stopped = parse_optional_date_input(date_stopped)
+                    except ValueError:
+                        st.error("Dates must use YYYY-MM-DD format.")
+                    else:
+                        payload = {
+                            "case_id": selected_case_id,
+                            "antibiotic_id": selected_antibiotic["id"],
+                            "indication": selected_indication["id"],
+                            "date_started": parsed_date_started,
+                            "date_stopped": parsed_date_stopped,
+                            "note": optional_text(note),
+                        }
+                        status_code, data = request_json("POST", "/case-antibiotics", payload)
+                        show_api_result(status_code, data)
+                        if 200 <= status_code < 300:
+                            load_case_antibiotics.clear()
+                            st.rerun()
+
+    with op_tabs[1]:
+        if case_antibiotics:
+            with st.form("edit_case_antibiotic_form"):
+                assoc_options = [
+                    {
+                        "case_id": row["case_id"],
+                        "antibiotic_id": row["antibiotic_id"],
+                        "indication": row.get("indication"),
+                        "date_started": row.get("date_started") or "",
+                        "date_stopped": row.get("date_stopped") or "",
+                        "note": row.get("note") or "",
+                        "label": (
+                            f"{row['case_id']} / {row['antibiotic_id']} - "
+                            f"{antibiotics_by_id.get(row['antibiotic_id'], {}).get('name', 'Unknown antibiotic')}"
+                        ),
+                    }
+                    for row in case_antibiotics
+                ]
+                selected_assoc = st.selectbox(
+                    "Select case antibiotic",
+                    options=assoc_options,
+                    format_func=lambda option: option["label"],
+                    key="edit_case_antibiotic_target_select",
+                )
+
+                edit_antibiotic_index = find_index_by_key(
+                    antibiotic_options,
+                    "id",
+                    selected_assoc["antibiotic_id"],
+                )
+                edit_indication_index = find_index_by_key(
+                    indication_options,
+                    "id",
+                    selected_assoc.get("indication"),
+                )
+
+                edited_antibiotic = st.selectbox(
+                    "Antibiotic",
+                    options=antibiotic_options,
+                    format_func=lambda option: option["label"],
+                    index=edit_antibiotic_index,
+                    key="edit_case_antibiotic_antibiotic_select",
+                )
+                edited_indication = st.selectbox(
+                    "Indication",
+                    options=indication_options,
+                    format_func=lambda option: option["label"],
+                    index=edit_indication_index,
+                    key="edit_case_antibiotic_indication_select",
+                )
+                patch_date_started = st.text_input(
+                    "Update date started (YYYY-MM-DD)",
+                    value=selected_assoc.get("date_started", ""),
+                )
+                patch_date_stopped = st.text_input(
+                    "Update date stopped (YYYY-MM-DD)",
+                    value=selected_assoc.get("date_stopped", ""),
+                )
+                patch_note = st.text_area("Update note", value=selected_assoc.get("note", ""))
+
+                if st.form_submit_button("Update Case Antibiotic"):
+                    try:
+                        parsed_date_started = parse_optional_date_input(patch_date_started)
+                        parsed_date_stopped = parse_optional_date_input(patch_date_stopped)
+                    except ValueError:
+                        st.error("Dates must use YYYY-MM-DD format.")
+                    else:
+                        payload = {
+                            "antibiotic_id": edited_antibiotic["id"],
+                            "indication": edited_indication["id"],
+                            "date_started": parsed_date_started,
+                            "date_stopped": parsed_date_stopped,
+                            "note": optional_text(patch_note),
+                        }
+                        status_code, data = request_json(
+                            "PATCH",
+                            f"/case-antibiotics/{selected_assoc['case_id']}/{selected_assoc['antibiotic_id']}",
+                            payload,
+                        )
+                        show_api_result(status_code, data)
+                        if 200 <= status_code < 300:
+                            load_case_antibiotics.clear()
+                            st.rerun()
+
+    with op_tabs[2]:
+        if case_antibiotics:
+            with st.form("delete_case_antibiotic_form"):
+                assoc_options = [
+                    {
+                        "case_id": row["case_id"],
+                        "antibiotic_id": row["antibiotic_id"],
+                        "label": (
+                            f"{row['case_id']} / {row['antibiotic_id']} - "
+                            f"{antibiotics_by_id.get(row['antibiotic_id'], {}).get('name', 'Unknown antibiotic')}"
+                        ),
+                    }
+                    for row in case_antibiotics
+                ]
+                selected_assoc = st.selectbox(
+                    "Select case antibiotic to delete",
+                    options=assoc_options,
+                    format_func=lambda option: option["label"],
+                    key="delete_case_antibiotic_select",
+                )
+
+                if st.form_submit_button("Delete Case Antibiotic", type="primary"):
+                    status_code, data = request_json(
+                        "DELETE",
+                        f"/case-antibiotics/{selected_assoc['case_id']}/{selected_assoc['antibiotic_id']}",
+                    )
+                    show_api_result(status_code, data)
+                    if 200 <= status_code < 300:
+                        load_case_antibiotics.clear()
+                        st.rerun()
+
+    card_close()
+
+
+def render_case_microbiology_section(selected_case: dict[str, Any]) -> None:
+    """Render case-specific CRUD for case_microbiology linked to selected burn unit case."""
+    card_open()
+    section_title("Case Microbiology")
+    selected_case_id = selected_case["id"]
+    try:
+        case_microbiology_rows = load_case_microbiology(case_id=selected_case_id)
+        specimens = load_microbiology_specimens()
+        agents = load_microbiology_agents()
+    except Exception as exc:
+        st.error(str(exc))
+        card_close()
+        return
+
+    specimens_by_id = {row["id"]: row for row in specimens if row.get("id") is not None}
+    agents_by_id = {row["id"]: row for row in agents if row.get("id") is not None}
+    specimen_options = [
+        {"id": row["id"], "label": microbiology_specimen_label(row)}
+        for row in specimens
+        if row.get("id") is not None
+    ]
+    agent_options = [
+        {"id": row["id"], "label": microbiology_agent_label(row)}
+        for row in agents
+        if row.get("id") is not None
+    ]
+
+    if not case_microbiology_rows:
+        st.info("No microbiology rows recorded for this case.")
+    else:
+        enriched_rows: list[dict[str, Any]] = []
+        for row in case_microbiology_rows:
+            specimen = specimens_by_id.get(row.get("specimen_id"), {})
+            agent = agents_by_id.get(row.get("microorganism_id"), {})
+            enriched_rows.append(
+                {
+                    "ID": row.get("id"),
+                    "Specimen": (
+                        f"[{row.get('specimen_id')}] "
+                        f"{specimen.get('specimen_type', 'Unknown specimen')}"
+                    ),
+                    "Microorganism": (
+                        f"[{row.get('microorganism_id')}] "
+                        f"{agent.get('name', 'Unknown microorganism')}"
+                    ),
+                    "Hospital test id": row.get("hospital_test_id") or "",
+                    "Collection date": row.get("date_of_collection") or "",
+                    "Reporting date": row.get("date_of_reporting") or "",
+                    "Note": row.get("note") or "",
+                }
+            )
+        st.dataframe(enriched_rows, hide_index=True, width="stretch")
+
+    op_tabs = st.tabs(["Add", "Edit", "Delete"])
+
+    with op_tabs[0]:
+        with st.form("create_case_microbiology_form"):
+            if not specimen_options:
+                st.info("No microbiology specimens available. Create them in Microbiology Specimens.")
+                st.form_submit_button("Add Case Microbiology", disabled=True)
+            elif not agent_options:
+                st.info("No microbiology agents available. Create them in Microbiology Agents.")
+                st.form_submit_button("Add Case Microbiology", disabled=True)
+            else:
+                selected_specimen = st.selectbox(
+                    "Specimen",
+                    options=specimen_options,
+                    format_func=lambda option: option["label"],
+                    key="create_case_microbiology_specimen_select",
+                )
+                selected_agent = st.selectbox(
+                    "Microorganism",
+                    options=agent_options,
+                    format_func=lambda option: option["label"],
+                    key="create_case_microbiology_agent_select",
+                )
+                hospital_test_id = st.text_input("Hospital test id", placeholder="Optional")
+                date_of_collection = st.text_input("Date of collection (YYYY-MM-DD)", placeholder="Optional")
+                date_of_reporting = st.text_input("Date of reporting (YYYY-MM-DD)", placeholder="Optional")
+                note = st.text_area("Note", placeholder="Optional")
+
+                submitted = st.form_submit_button("Add Case Microbiology")
+                if submitted:
+                    try:
+                        parsed_collection_date = parse_optional_date_input(date_of_collection)
+                        parsed_reporting_date = parse_optional_date_input(date_of_reporting)
+                    except ValueError:
+                        st.error("Dates must use YYYY-MM-DD format.")
+                    else:
+                        payload = {
+                            "case_id": selected_case_id,
+                            "specimen_id": selected_specimen["id"],
+                            "microorganism_id": selected_agent["id"],
+                            "hospital_test_id": optional_text(hospital_test_id),
+                            "date_of_collection": parsed_collection_date,
+                            "date_of_reporting": parsed_reporting_date,
+                            "note": optional_text(note),
+                        }
+                        status_code, data = request_json("POST", "/case-microbiology", payload)
+                        show_api_result(status_code, data)
+                        if 200 <= status_code < 300:
+                            load_case_microbiology.clear()
+                            st.rerun()
+
+    with op_tabs[1]:
+        if case_microbiology_rows:
+            with st.form("edit_case_microbiology_form"):
+                row_options = [
+                    {
+                        "id": row["id"],
+                        "specimen_id": row["specimen_id"],
+                        "microorganism_id": row["microorganism_id"],
+                        "hospital_test_id": row.get("hospital_test_id") or "",
+                        "date_of_collection": row.get("date_of_collection") or "",
+                        "date_of_reporting": row.get("date_of_reporting") or "",
+                        "note": row.get("note") or "",
+                        "label": (
+                            f"{row['id']} - "
+                            f"{agents_by_id.get(row['microorganism_id'], {}).get('name', 'Unknown microorganism')}"
+                        ),
+                    }
+                    for row in case_microbiology_rows
+                ]
+                selected_row = st.selectbox(
+                    "Select case microbiology row",
+                    options=row_options,
+                    format_func=lambda option: option["label"],
+                    key="edit_case_microbiology_target_select",
+                )
+
+                edit_specimen_index = find_index_by_key(specimen_options, "id", selected_row["specimen_id"])
+                edit_agent_index = find_index_by_key(agent_options, "id", selected_row["microorganism_id"])
+
+                edited_specimen = st.selectbox(
+                    "Specimen",
+                    options=specimen_options,
+                    format_func=lambda option: option["label"],
+                    index=edit_specimen_index,
+                    key="edit_case_microbiology_specimen_select",
+                )
+                edited_agent = st.selectbox(
+                    "Microorganism",
+                    options=agent_options,
+                    format_func=lambda option: option["label"],
+                    index=edit_agent_index,
+                    key="edit_case_microbiology_agent_select",
+                )
+                patch_hospital_test_id = st.text_input(
+                    "Hospital test id",
+                    value=selected_row.get("hospital_test_id", ""),
+                )
+                patch_date_of_collection = st.text_input(
+                    "Update date of collection (YYYY-MM-DD)",
+                    value=selected_row.get("date_of_collection", ""),
+                )
+                patch_date_of_reporting = st.text_input(
+                    "Update date of reporting (YYYY-MM-DD)",
+                    value=selected_row.get("date_of_reporting", ""),
+                )
+                patch_note = st.text_area("Update note", value=selected_row.get("note", ""))
+
+                if st.form_submit_button("Update Case Microbiology"):
+                    try:
+                        parsed_collection_date = parse_optional_date_input(patch_date_of_collection)
+                        parsed_reporting_date = parse_optional_date_input(patch_date_of_reporting)
+                    except ValueError:
+                        st.error("Dates must use YYYY-MM-DD format.")
+                    else:
+                        payload = {
+                            "specimen_id": edited_specimen["id"],
+                            "microorganism_id": edited_agent["id"],
+                            "hospital_test_id": optional_text(patch_hospital_test_id),
+                            "date_of_collection": parsed_collection_date,
+                            "date_of_reporting": parsed_reporting_date,
+                            "note": optional_text(patch_note),
+                        }
+                        status_code, data = request_json(
+                            "PATCH",
+                            f"/case-microbiology/{selected_row['id']}",
+                            payload,
+                        )
+                        show_api_result(status_code, data)
+                        if 200 <= status_code < 300:
+                            load_case_microbiology.clear()
+                            st.rerun()
+
+    with op_tabs[2]:
+        if case_microbiology_rows:
+            with st.form("delete_case_microbiology_form"):
+                row_options = [
+                    {
+                        "id": row["id"],
+                        "label": (
+                            f"{row['id']} - "
+                            f"{agents_by_id.get(row['microorganism_id'], {}).get('name', 'Unknown microorganism')}"
+                        ),
+                    }
+                    for row in case_microbiology_rows
+                ]
+                selected_row = st.selectbox(
+                    "Select case microbiology row to delete",
+                    options=row_options,
+                    format_func=lambda option: option["label"],
+                    key="delete_case_microbiology_select",
+                )
+
+                if st.form_submit_button("Delete Case Microbiology", type="primary"):
+                    status_code, data = request_json(
+                        "DELETE",
+                        f"/case-microbiology/{selected_row['id']}",
+                    )
+                    show_api_result(status_code, data)
+                    if 200 <= status_code < 300:
+                        load_case_microbiology.clear()
+                        st.rerun()
+
+    card_close()
+
 def render_burn_unit_case_future_associations_placeholder() -> None:
     """Reserve space for future burn-case association tables."""
     card_open(compact=True)
     section_title("Future Burn Case Modules")
     st.info(
         "This Burn Unit Case Overview is prepared for future association tables: "
-        "interventions, antibiotics, microbiology, and complications."
+        "interventions and complications."
     )
     card_close()
 
@@ -2868,6 +3324,8 @@ def burn_unit_case_overview_tab() -> None:
     render_case_burns_section(selected_case)
     render_case_associated_injuries_section(selected_case)
     render_case_infections_section(selected_case)
+    render_case_antibiotics_section(selected_case)
+    render_case_microbiology_section(selected_case)
 
     render_burn_unit_case_future_associations_placeholder()
 
@@ -3291,9 +3749,39 @@ def load_infections() -> list[dict[str, Any]]:
     return data
 
 
+@st.cache_data(ttl=5)
+def load_microbiology_specimens() -> list[dict[str, Any]]:
+    """Load all microbiology specimens from API."""
+    status, data = request_json("GET", "/microbiology-specimens")
+    if status != 200:
+        raise RuntimeError(f"Could not load microbiology specimens: {data}")
+    return data
+
+
+@st.cache_data(ttl=5)
+def load_microbiology_agents() -> list[dict[str, Any]]:
+    """Load all microbiology agents from API."""
+    status, data = request_json("GET", "/microbiology-agents")
+    if status != 200:
+        raise RuntimeError(f"Could not load microbiology agents: {data}")
+    return data
+
+
 def infection_label(infection: dict[str, Any]) -> str:
     """Format an infection for display in selectboxes."""
     return f"{infection['name']} ({infection['id']})"
+
+
+def microbiology_specimen_label(specimen: dict[str, Any]) -> str:
+    """Format a microbiology specimen for display in selectboxes."""
+    loinc_code = specimen.get("loinc_code") or "-"
+    return f"{specimen.get('id')} - {specimen.get('specimen_type')} (LOINC: {loinc_code})"
+
+
+def microbiology_agent_label(agent: dict[str, Any]) -> str:
+    """Format a microbiology agent for display in selectboxes."""
+    snomed_code = agent.get("snomed_ct_code") or "-"
+    return f"{agent.get('id')} - {agent.get('name')} (SNOMED-CT: {snomed_code})"
 
 
 def render_infections_overview(infections: list[dict[str, Any]]) -> None:
@@ -3437,6 +3925,400 @@ def infections_tab() -> None:
     render_infections_crud_workspace(infections)
 
 
+def render_microbiology_specimens_overview(specimens: list[dict[str, Any]]) -> None:
+    """Render compact overview and microbiology specimen list."""
+    cols = st.columns([2, 1])
+    with cols[0]:
+        st.markdown(f"<span class='ui-badge'>Specimens: {len(specimens)}</span>", unsafe_allow_html=True)
+        st.markdown("<span class='ui-badge'>Operations: GET, POST, PUT, PATCH, DELETE</span>", unsafe_allow_html=True)
+    with cols[1]:
+        if st.button("Refresh now", width="stretch", key="refresh_microbiology_specimens"):
+            refresh_data()
+
+    card_open(compact=True)
+    section_title("Current Microbiology Specimens")
+    if specimens:
+        st.dataframe(specimens, width="stretch", hide_index=True)
+    else:
+        st.info("No microbiology specimens available yet.")
+    card_close()
+
+
+def render_microbiology_specimen_create_tab() -> None:
+    """Render create microbiology specimen operation."""
+    with st.form("create_microbiology_specimen_form"):
+        loinc_code = st.text_input("LOINC code", placeholder="LOINC code")
+        specimen_type = st.text_input("Specimen type", placeholder="e.g. blood culture")
+        note = st.text_area("Note", placeholder="Optional")
+        submitted = st.form_submit_button("Create microbiology specimen", width="stretch")
+
+        if submitted:
+            payload = {
+                "loinc_code": loinc_code.strip(),
+                "specimen_type": specimen_type.strip(),
+                "note": optional_text(note),
+            }
+            status_code, data = request_json("POST", "/microbiology-specimens", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_microbiology_specimen_read_tab(specimens: list[dict[str, Any]]) -> None:
+    """Render read single microbiology specimen operation."""
+    if not specimens:
+        st.info("Create at least one microbiology specimen to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Select microbiology specimen",
+        options=specimens,
+        format_func=microbiology_specimen_label,
+        key="read_microbiology_specimen_select",
+    )
+    if st.button("Fetch microbiology specimen", width="stretch"):
+        status_code, data = request_json("GET", f"/microbiology-specimens/{selected['id']}")
+        show_api_result(status_code, data)
+
+
+def render_microbiology_specimen_put_tab(specimens: list[dict[str, Any]]) -> None:
+    """Render full replace microbiology specimen operation."""
+    if not specimens:
+        st.info("Create at least one microbiology specimen to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Microbiology specimen to replace",
+        options=specimens,
+        format_func=microbiology_specimen_label,
+        key="put_microbiology_specimen_select",
+    )
+
+    with st.form("put_microbiology_specimen_form"):
+        loinc_code = st.text_input("LOINC code", value=str(selected.get("loinc_code") or ""))
+        specimen_type = st.text_input("Specimen type", value=str(selected.get("specimen_type") or ""))
+        note = st.text_area("Note", value=str(selected.get("note") or ""))
+        submitted = st.form_submit_button("Replace microbiology specimen", width="stretch")
+
+        if submitted:
+            payload = {
+                "loinc_code": loinc_code.strip(),
+                "specimen_type": specimen_type.strip(),
+                "note": optional_text(note),
+            }
+            status_code, data = request_json("PUT", f"/microbiology-specimens/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_microbiology_specimen_patch_tab(specimens: list[dict[str, Any]]) -> None:
+    """Render partial update microbiology specimen operation."""
+    if not specimens:
+        st.info("Create at least one microbiology specimen to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Microbiology specimen to patch",
+        options=specimens,
+        format_func=microbiology_specimen_label,
+        key="patch_microbiology_specimen_select",
+    )
+
+    with st.form("patch_microbiology_specimen_form"):
+        use_loinc_code = st.checkbox("Update LOINC code", key="patch_microbiology_specimen_use_loinc")
+        patch_loinc_code = st.text_input(
+            "LOINC code",
+            value=str(selected.get("loinc_code") or ""),
+            key="patch_microbiology_specimen_loinc",
+        )
+
+        use_specimen_type = st.checkbox("Update specimen type", key="patch_microbiology_specimen_use_type")
+        patch_specimen_type = st.text_input(
+            "Specimen type",
+            value=str(selected.get("specimen_type") or ""),
+            key="patch_microbiology_specimen_type",
+        )
+
+        use_note = st.checkbox("Update note", key="patch_microbiology_specimen_use_note")
+        patch_note = st.text_area(
+            "Note",
+            value=str(selected.get("note") or ""),
+            key="patch_microbiology_specimen_note",
+        )
+
+        submitted = st.form_submit_button("Apply patch", width="stretch")
+
+        if submitted:
+            payload: dict[str, Any] = {}
+            if use_loinc_code:
+                payload["loinc_code"] = patch_loinc_code.strip()
+            if use_specimen_type:
+                payload["specimen_type"] = patch_specimen_type.strip()
+            if use_note:
+                payload["note"] = optional_text(patch_note)
+
+            status_code, data = request_json("PATCH", f"/microbiology-specimens/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_microbiology_specimen_delete_tab(specimens: list[dict[str, Any]]) -> None:
+    """Render delete microbiology specimen operation."""
+    if not specimens:
+        st.info("Create at least one microbiology specimen to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Microbiology specimen to delete",
+        options=specimens,
+        format_func=microbiology_specimen_label,
+        key="delete_microbiology_specimen_select",
+    )
+    confirm_delete = st.checkbox(
+        "I understand this action cannot be undone",
+        key="delete_microbiology_specimen_confirm",
+    )
+    if st.button("Delete microbiology specimen", type="primary", disabled=not confirm_delete, width="stretch"):
+        status_code, data = request_json("DELETE", f"/microbiology-specimens/{selected['id']}")
+        show_api_result(status_code, data)
+        if 200 <= status_code < 300:
+            refresh_data()
+
+
+def render_microbiology_specimen_crud_workspace(specimens: list[dict[str, Any]]) -> None:
+    """Render microbiology specimen CRUD operations in compact tabs."""
+    card_open()
+    section_title("Microbiology Specimens CRUD Workspace")
+    op_tabs = st.tabs(["Create (POST)", "Read One (GET)", "Replace (PUT)", "Patch (PATCH)", "Delete (DELETE)"])
+
+    with op_tabs[0]:
+        render_microbiology_specimen_create_tab()
+    with op_tabs[1]:
+        render_microbiology_specimen_read_tab(specimens)
+    with op_tabs[2]:
+        render_microbiology_specimen_put_tab(specimens)
+    with op_tabs[3]:
+        render_microbiology_specimen_patch_tab(specimens)
+    with op_tabs[4]:
+        render_microbiology_specimen_delete_tab(specimens)
+
+    card_close()
+
+
+def microbiology_specimens_tab() -> None:
+    """Render microbiology specimens management UI."""
+    st.subheader("Microbiology Specimens Management")
+    st.caption(f"Backend API: {API_BASE_URL}")
+
+    try:
+        specimens = load_microbiology_specimens()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+
+    render_microbiology_specimens_overview(specimens)
+    render_microbiology_specimen_crud_workspace(specimens)
+
+
+def render_microbiology_agents_overview(agents: list[dict[str, Any]]) -> None:
+    """Render compact overview and microbiology agent list."""
+    cols = st.columns([2, 1])
+    with cols[0]:
+        st.markdown(f"<span class='ui-badge'>Agents: {len(agents)}</span>", unsafe_allow_html=True)
+        st.markdown("<span class='ui-badge'>Operations: GET, POST, PUT, PATCH, DELETE</span>", unsafe_allow_html=True)
+    with cols[1]:
+        if st.button("Refresh now", width="stretch", key="refresh_microbiology_agents"):
+            refresh_data()
+
+    card_open(compact=True)
+    section_title("Current Microbiology Agents")
+    if agents:
+        st.dataframe(agents, width="stretch", hide_index=True)
+    else:
+        st.info("No microbiology agents available yet.")
+    card_close()
+
+
+def render_microbiology_agent_create_tab() -> None:
+    """Render create microbiology agent operation."""
+    with st.form("create_microbiology_agent_form"):
+        snomed_ct_code = st.text_input("SNOMED-CT code", placeholder="SNOMED-CT concept id")
+        name = st.text_input("Name", placeholder="Microorganism name")
+        description = st.text_area("Description", placeholder="Optional")
+        submitted = st.form_submit_button("Create microbiology agent", width="stretch")
+
+        if submitted:
+            payload = {
+                "snomed_ct_code": snomed_ct_code.strip(),
+                "name": name.strip(),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("POST", "/microbiology-agents", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_microbiology_agent_read_tab(agents: list[dict[str, Any]]) -> None:
+    """Render read single microbiology agent operation."""
+    if not agents:
+        st.info("Create at least one microbiology agent to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Select microbiology agent",
+        options=agents,
+        format_func=microbiology_agent_label,
+        key="read_microbiology_agent_select",
+    )
+    if st.button("Fetch microbiology agent", width="stretch"):
+        status_code, data = request_json("GET", f"/microbiology-agents/{selected['id']}")
+        show_api_result(status_code, data)
+
+
+def render_microbiology_agent_put_tab(agents: list[dict[str, Any]]) -> None:
+    """Render full replace microbiology agent operation."""
+    if not agents:
+        st.info("Create at least one microbiology agent to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Microbiology agent to replace",
+        options=agents,
+        format_func=microbiology_agent_label,
+        key="put_microbiology_agent_select",
+    )
+
+    with st.form("put_microbiology_agent_form"):
+        snomed_ct_code = st.text_input("SNOMED-CT code", value=str(selected.get("snomed_ct_code") or ""))
+        name = st.text_input("Name", value=str(selected.get("name") or ""))
+        description = st.text_area("Description", value=str(selected.get("description") or ""))
+        submitted = st.form_submit_button("Replace microbiology agent", width="stretch")
+
+        if submitted:
+            payload = {
+                "snomed_ct_code": snomed_ct_code.strip(),
+                "name": name.strip(),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("PUT", f"/microbiology-agents/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_microbiology_agent_patch_tab(agents: list[dict[str, Any]]) -> None:
+    """Render partial update microbiology agent operation."""
+    if not agents:
+        st.info("Create at least one microbiology agent to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Microbiology agent to patch",
+        options=agents,
+        format_func=microbiology_agent_label,
+        key="patch_microbiology_agent_select",
+    )
+
+    with st.form("patch_microbiology_agent_form"):
+        use_snomed_code = st.checkbox("Update SNOMED-CT code", key="patch_microbiology_agent_use_code")
+        patch_snomed_code = st.text_input(
+            "SNOMED-CT code",
+            value=str(selected.get("snomed_ct_code") or ""),
+            key="patch_microbiology_agent_code",
+        )
+
+        use_name = st.checkbox("Update name", key="patch_microbiology_agent_use_name")
+        patch_name = st.text_input(
+            "Name",
+            value=str(selected.get("name") or ""),
+            key="patch_microbiology_agent_name",
+        )
+
+        use_description = st.checkbox("Update description", key="patch_microbiology_agent_use_description")
+        patch_description = st.text_area(
+            "Description",
+            value=str(selected.get("description") or ""),
+            key="patch_microbiology_agent_description",
+        )
+
+        submitted = st.form_submit_button("Apply patch", width="stretch")
+
+        if submitted:
+            payload: dict[str, Any] = {}
+            if use_snomed_code:
+                payload["snomed_ct_code"] = patch_snomed_code.strip()
+            if use_name:
+                payload["name"] = patch_name.strip()
+            if use_description:
+                payload["description"] = optional_text(patch_description)
+
+            status_code, data = request_json("PATCH", f"/microbiology-agents/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_microbiology_agent_delete_tab(agents: list[dict[str, Any]]) -> None:
+    """Render delete microbiology agent operation."""
+    if not agents:
+        st.info("Create at least one microbiology agent to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Microbiology agent to delete",
+        options=agents,
+        format_func=microbiology_agent_label,
+        key="delete_microbiology_agent_select",
+    )
+    confirm_delete = st.checkbox(
+        "I understand this action cannot be undone",
+        key="delete_microbiology_agent_confirm",
+    )
+    if st.button("Delete microbiology agent", type="primary", disabled=not confirm_delete, width="stretch"):
+        status_code, data = request_json("DELETE", f"/microbiology-agents/{selected['id']}")
+        show_api_result(status_code, data)
+        if 200 <= status_code < 300:
+            refresh_data()
+
+
+def render_microbiology_agent_crud_workspace(agents: list[dict[str, Any]]) -> None:
+    """Render microbiology agent CRUD operations in compact tabs."""
+    card_open()
+    section_title("Microbiology Agents CRUD Workspace")
+    op_tabs = st.tabs(["Create (POST)", "Read One (GET)", "Replace (PUT)", "Patch (PATCH)", "Delete (DELETE)"])
+
+    with op_tabs[0]:
+        render_microbiology_agent_create_tab()
+    with op_tabs[1]:
+        render_microbiology_agent_read_tab(agents)
+    with op_tabs[2]:
+        render_microbiology_agent_put_tab(agents)
+    with op_tabs[3]:
+        render_microbiology_agent_patch_tab(agents)
+    with op_tabs[4]:
+        render_microbiology_agent_delete_tab(agents)
+
+    card_close()
+
+
+def microbiology_agents_tab() -> None:
+    """Render microbiology agents management UI."""
+    st.subheader("Microbiology Agents Management")
+    st.caption(f"Backend API: {API_BASE_URL}")
+
+    try:
+        agents = load_microbiology_agents()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+
+    render_microbiology_agents_overview(agents)
+    render_microbiology_agent_crud_workspace(agents)
+
+
 def main() -> None:
     """Run the Streamlit application."""
     st.set_page_config(page_title="Burn Unit UI", layout="wide")
@@ -3454,6 +4336,8 @@ def main() -> None:
             "Pathologies",
             "Medications",
             "Antibiotics",
+            "Microbiology Specimens",
+            "Microbiology Agents",
             "Provenance/Destination",
             "Burn Etiologies",
             "Infections",
@@ -3474,10 +4358,14 @@ def main() -> None:
     with tabs[6]:
         antibiotics_tab()
     with tabs[7]:
-        provenance_destinations_tab()
+        microbiology_specimens_tab()
     with tabs[8]:
-        burn_etiologies_tab()
+        microbiology_agents_tab()
     with tabs[9]:
+        provenance_destinations_tab()
+    with tabs[10]:
+        burn_etiologies_tab()
+    with tabs[11]:
         infections_tab()
 
 
