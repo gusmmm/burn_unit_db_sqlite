@@ -406,6 +406,8 @@ def refresh_data() -> None:
     load_case_infections.clear()
     load_case_antibiotics.clear()
     load_case_procedures.clear()
+    load_case_surgical_interventions.clear()
+    load_case_complications.clear()
     load_case_microbiology.clear()
     load_medical_procedures.clear()
     load_surgical_interventions.clear()
@@ -2438,6 +2440,30 @@ def load_case_procedures(case_id: int | None = None) -> list[dict[str, Any]]:
         raise RuntimeError(f"Could not load case procedures: {data}")
     return data
 
+
+@st.cache_data(ttl=5)
+def load_case_surgical_interventions(case_id: int | None = None) -> list[dict[str, Any]]:
+    """Load case_surgical_interventions from API optionally filtered by case_id."""
+    path = (
+        f"/case-surgical-interventions?case_id={case_id}"
+        if case_id is not None
+        else "/case-surgical-interventions"
+    )
+    status, data = request_json("GET", path)
+    if status != 200:
+        raise RuntimeError(f"Could not load case surgical interventions: {data}")
+    return data
+
+
+@st.cache_data(ttl=5)
+def load_case_complications(case_id: int | None = None) -> list[dict[str, Any]]:
+    """Load case_complications from API optionally filtered by case_id."""
+    path = f"/case-complications?case_id={case_id}" if case_id is not None else "/case-complications"
+    status, data = request_json("GET", path)
+    if status != 200:
+        raise RuntimeError(f"Could not load case complications: {data}")
+    return data
+
 @st.cache_data(ttl=5)
 def load_burn_depths() -> list[dict[str, Any]]:
     status, data = request_json("GET", "/burn-depths")
@@ -3447,13 +3473,369 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
 
     card_close()
 
+
+def render_case_surgical_interventions_section(selected_case: dict[str, Any]) -> None:
+    """Render case-specific CRUD for case_surgical_interventions linked to selected burn unit case."""
+    card_open()
+    section_title("Case Surgical Interventions")
+    selected_case_id = selected_case["id"]
+    try:
+        case_interventions = load_case_surgical_interventions(case_id=selected_case_id)
+        interventions = load_surgical_interventions()
+    except Exception as exc:
+        st.error(str(exc))
+        card_close()
+        return
+
+    interventions_by_id = {row["id"]: row for row in interventions if row.get("id") is not None}
+    intervention_options = [
+        {"id": row["id"], "label": surgical_intervention_label(row)}
+        for row in interventions
+        if row.get("id") is not None
+    ]
+
+    if not case_interventions:
+        st.info("No surgical interventions recorded for this case.")
+    else:
+        enriched_rows: list[dict[str, Any]] = []
+        for row in case_interventions:
+            intervention = interventions_by_id.get(row.get("intervention_id"), {})
+            enriched_rows.append(
+                {
+                    "Intervention": (
+                        f"[{row.get('intervention_id')}] "
+                        f"{intervention.get('name', 'Unknown intervention')}"
+                    ),
+                    "Date started": row.get("date_started") or "",
+                    "Date stopped": row.get("date_stopped") or "",
+                    "Note": row.get("note") or "",
+                }
+            )
+        st.dataframe(enriched_rows, hide_index=True, width="stretch")
+
+    op_tabs = st.tabs(["Add", "Edit", "Delete"])
+
+    with op_tabs[0]:
+        with st.form("create_case_surgical_intervention_form"):
+            if not intervention_options:
+                st.info("No surgical interventions available. Create them in Surgical Interventions.")
+                st.form_submit_button("Add Case Surgical Intervention", disabled=True)
+            else:
+                selected_intervention = st.selectbox(
+                    "Intervention",
+                    options=intervention_options,
+                    format_func=lambda option: option["label"],
+                    key="create_case_surgical_intervention_select",
+                )
+                date_started = st.text_input("Date started (YYYY-MM-DD)", placeholder="Optional")
+                date_stopped = st.text_input("Date stopped (YYYY-MM-DD)", placeholder="Optional")
+                note = st.text_area("Note", placeholder="Optional")
+
+                if st.form_submit_button("Add Case Surgical Intervention"):
+                    try:
+                        parsed_date_started = parse_optional_date_input(date_started)
+                        parsed_date_stopped = parse_optional_date_input(date_stopped)
+                    except ValueError:
+                        st.error("Dates must use YYYY-MM-DD format.")
+                    else:
+                        payload = {
+                            "case_id": selected_case_id,
+                            "intervention_id": selected_intervention["id"],
+                            "date_started": parsed_date_started,
+                            "date_stopped": parsed_date_stopped,
+                            "note": optional_text(note),
+                        }
+                        status_code, data = request_json("POST", "/case-surgical-interventions", payload)
+                        show_api_result(status_code, data)
+                        if 200 <= status_code < 300:
+                            load_case_surgical_interventions.clear()
+                            st.rerun()
+
+    with op_tabs[1]:
+        if case_interventions:
+            with st.form("edit_case_surgical_intervention_form"):
+                assoc_options = [
+                    {
+                        "case_id": row["case_id"],
+                        "intervention_id": row["intervention_id"],
+                        "date_started": row.get("date_started") or "",
+                        "date_stopped": row.get("date_stopped") or "",
+                        "note": row.get("note") or "",
+                        "label": (
+                            f"{row['case_id']} / {row['intervention_id']} - "
+                            f"{interventions_by_id.get(row['intervention_id'], {}).get('name', 'Unknown intervention')}"
+                        ),
+                    }
+                    for row in case_interventions
+                ]
+                selected_assoc = st.selectbox(
+                    "Select case intervention",
+                    options=assoc_options,
+                    format_func=lambda option: option["label"],
+                    key="edit_case_surgical_intervention_target_select",
+                )
+
+                edit_intervention_index = find_index_by_key(
+                    intervention_options,
+                    "id",
+                    selected_assoc["intervention_id"],
+                )
+
+                edited_intervention = st.selectbox(
+                    "Intervention",
+                    options=intervention_options,
+                    format_func=lambda option: option["label"],
+                    index=edit_intervention_index,
+                    key="edit_case_surgical_intervention_select",
+                )
+                patch_date_started = st.text_input(
+                    "Update date started (YYYY-MM-DD)",
+                    value=selected_assoc.get("date_started", ""),
+                )
+                patch_date_stopped = st.text_input(
+                    "Update date stopped (YYYY-MM-DD)",
+                    value=selected_assoc.get("date_stopped", ""),
+                )
+                patch_note = st.text_area("Update note", value=selected_assoc.get("note", ""))
+
+                if st.form_submit_button("Update Case Surgical Intervention"):
+                    try:
+                        parsed_date_started = parse_optional_date_input(patch_date_started)
+                        parsed_date_stopped = parse_optional_date_input(patch_date_stopped)
+                    except ValueError:
+                        st.error("Dates must use YYYY-MM-DD format.")
+                    else:
+                        payload = {
+                            "intervention_id": edited_intervention["id"],
+                            "date_started": parsed_date_started,
+                            "date_stopped": parsed_date_stopped,
+                            "note": optional_text(patch_note),
+                        }
+                        status_code, data = request_json(
+                            "PATCH",
+                            (
+                                f"/case-surgical-interventions/"
+                                f"{selected_assoc['case_id']}/{selected_assoc['intervention_id']}"
+                            ),
+                            payload,
+                        )
+                        show_api_result(status_code, data)
+                        if 200 <= status_code < 300:
+                            load_case_surgical_interventions.clear()
+                            st.rerun()
+
+    with op_tabs[2]:
+        if case_interventions:
+            with st.form("delete_case_surgical_intervention_form"):
+                assoc_options = [
+                    {
+                        "case_id": row["case_id"],
+                        "intervention_id": row["intervention_id"],
+                        "label": (
+                            f"{row['case_id']} / {row['intervention_id']} - "
+                            f"{interventions_by_id.get(row['intervention_id'], {}).get('name', 'Unknown intervention')}"
+                        ),
+                    }
+                    for row in case_interventions
+                ]
+                selected_assoc = st.selectbox(
+                    "Select case intervention to delete",
+                    options=assoc_options,
+                    format_func=lambda option: option["label"],
+                    key="delete_case_surgical_intervention_select",
+                )
+
+                if st.form_submit_button("Delete Case Surgical Intervention", type="primary"):
+                    status_code, data = request_json(
+                        "DELETE",
+                        (
+                            f"/case-surgical-interventions/"
+                            f"{selected_assoc['case_id']}/{selected_assoc['intervention_id']}"
+                        ),
+                    )
+                    show_api_result(status_code, data)
+                    if 200 <= status_code < 300:
+                        load_case_surgical_interventions.clear()
+                        st.rerun()
+
+    card_close()
+
+
+def render_case_complications_section(selected_case: dict[str, Any]) -> None:
+    """Render case-specific CRUD for case_complications linked to selected burn unit case."""
+    card_open()
+    section_title("Case Complications")
+    selected_case_id = selected_case["id"]
+    try:
+        case_complications = load_case_complications(case_id=selected_case_id)
+        complications = load_complications()
+    except Exception as exc:
+        st.error(str(exc))
+        card_close()
+        return
+
+    complications_by_id = {row["id"]: row for row in complications if row.get("id") is not None}
+    complication_options = [
+        {"id": row["id"], "label": complication_label(row)}
+        for row in complications
+        if row.get("id") is not None
+    ]
+
+    if not case_complications:
+        st.info("No complications recorded for this case.")
+    else:
+        enriched_rows: list[dict[str, Any]] = []
+        for row in case_complications:
+            complication = complications_by_id.get(row.get("complication_id"), {})
+            enriched_rows.append(
+                {
+                    "Complication": (
+                        f"[{row.get('complication_id')}] "
+                        f"{complication.get('name', 'Unknown complication')}"
+                    ),
+                    "Date started": row.get("date_started") or "",
+                    "Note": row.get("note") or "",
+                }
+            )
+        st.dataframe(enriched_rows, hide_index=True, width="stretch")
+
+    op_tabs = st.tabs(["Add", "Edit", "Delete"])
+
+    with op_tabs[0]:
+        with st.form("create_case_complication_form"):
+            if not complication_options:
+                st.info("No complications available. Create them in Complications.")
+                st.form_submit_button("Add Case Complication", disabled=True)
+            else:
+                selected_complication = st.selectbox(
+                    "Complication",
+                    options=complication_options,
+                    format_func=lambda option: option["label"],
+                    key="create_case_complication_select",
+                )
+                date_started = st.text_input("Date started (YYYY-MM-DD)", placeholder="Optional")
+                note = st.text_area("Note", placeholder="Optional")
+
+                if st.form_submit_button("Add Case Complication"):
+                    try:
+                        parsed_date_started = parse_optional_date_input(date_started)
+                    except ValueError:
+                        st.error("Date must use YYYY-MM-DD format.")
+                    else:
+                        payload = {
+                            "case_id": selected_case_id,
+                            "complication_id": selected_complication["id"],
+                            "date_started": parsed_date_started,
+                            "note": optional_text(note),
+                        }
+                        status_code, data = request_json("POST", "/case-complications", payload)
+                        show_api_result(status_code, data)
+                        if 200 <= status_code < 300:
+                            load_case_complications.clear()
+                            st.rerun()
+
+    with op_tabs[1]:
+        if case_complications:
+            with st.form("edit_case_complication_form"):
+                assoc_options = [
+                    {
+                        "case_id": row["case_id"],
+                        "complication_id": row["complication_id"],
+                        "date_started": row.get("date_started") or "",
+                        "note": row.get("note") or "",
+                        "label": (
+                            f"{row['case_id']} / {row['complication_id']} - "
+                            f"{complications_by_id.get(row['complication_id'], {}).get('name', 'Unknown complication')}"
+                        ),
+                    }
+                    for row in case_complications
+                ]
+                selected_assoc = st.selectbox(
+                    "Select case complication",
+                    options=assoc_options,
+                    format_func=lambda option: option["label"],
+                    key="edit_case_complication_target_select",
+                )
+
+                edit_complication_index = find_index_by_key(
+                    complication_options,
+                    "id",
+                    selected_assoc["complication_id"],
+                )
+
+                edited_complication = st.selectbox(
+                    "Complication",
+                    options=complication_options,
+                    format_func=lambda option: option["label"],
+                    index=edit_complication_index,
+                    key="edit_case_complication_select",
+                )
+                patch_date_started = st.text_input(
+                    "Update date started (YYYY-MM-DD)",
+                    value=selected_assoc.get("date_started", ""),
+                )
+                patch_note = st.text_area("Update note", value=selected_assoc.get("note", ""))
+
+                if st.form_submit_button("Update Case Complication"):
+                    try:
+                        parsed_date_started = parse_optional_date_input(patch_date_started)
+                    except ValueError:
+                        st.error("Date must use YYYY-MM-DD format.")
+                    else:
+                        payload = {
+                            "complication_id": edited_complication["id"],
+                            "date_started": parsed_date_started,
+                            "note": optional_text(patch_note),
+                        }
+                        status_code, data = request_json(
+                            "PATCH",
+                            f"/case-complications/{selected_assoc['case_id']}/{selected_assoc['complication_id']}",
+                            payload,
+                        )
+                        show_api_result(status_code, data)
+                        if 200 <= status_code < 300:
+                            load_case_complications.clear()
+                            st.rerun()
+
+    with op_tabs[2]:
+        if case_complications:
+            with st.form("delete_case_complication_form"):
+                assoc_options = [
+                    {
+                        "case_id": row["case_id"],
+                        "complication_id": row["complication_id"],
+                        "label": (
+                            f"{row['case_id']} / {row['complication_id']} - "
+                            f"{complications_by_id.get(row['complication_id'], {}).get('name', 'Unknown complication')}"
+                        ),
+                    }
+                    for row in case_complications
+                ]
+                selected_assoc = st.selectbox(
+                    "Select case complication to delete",
+                    options=assoc_options,
+                    format_func=lambda option: option["label"],
+                    key="delete_case_complication_select",
+                )
+
+                if st.form_submit_button("Delete Case Complication", type="primary"):
+                    status_code, data = request_json(
+                        "DELETE",
+                        f"/case-complications/{selected_assoc['case_id']}/{selected_assoc['complication_id']}",
+                    )
+                    show_api_result(status_code, data)
+                    if 200 <= status_code < 300:
+                        load_case_complications.clear()
+                        st.rerun()
+
+    card_close()
+
 def render_burn_unit_case_future_associations_placeholder() -> None:
     """Reserve space for future burn-case association tables."""
     card_open(compact=True)
     section_title("Future Burn Case Modules")
     st.info(
-        "This Burn Unit Case Overview is prepared for future association tables: "
-        "interventions and complications."
+        "This Burn Unit Case Overview is prepared for additional future association tables."
     )
     card_close()
 
@@ -3521,6 +3903,8 @@ def burn_unit_case_overview_tab() -> None:
     render_case_infections_section(selected_case)
     render_case_antibiotics_section(selected_case)
     render_case_procedures_section(selected_case)
+    render_case_surgical_interventions_section(selected_case)
+    render_case_complications_section(selected_case)
     render_case_microbiology_section(selected_case)
 
     render_burn_unit_case_future_associations_placeholder()
