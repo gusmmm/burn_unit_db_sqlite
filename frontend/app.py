@@ -408,6 +408,8 @@ def refresh_data() -> None:
     load_case_procedures.clear()
     load_case_microbiology.clear()
     load_medical_procedures.clear()
+    load_surgical_interventions.clear()
+    load_complications.clear()
     load_microbiology_specimens.clear()
     load_microbiology_agents.clear()
     st.rerun()
@@ -3970,6 +3972,24 @@ def load_medical_procedures() -> list[dict[str, Any]]:
     return data
 
 
+@st.cache_data(ttl=5)
+def load_surgical_interventions() -> list[dict[str, Any]]:
+    """Load all surgical interventions from API."""
+    status, data = request_json("GET", "/surgical-interventions")
+    if status != 200:
+        raise RuntimeError(f"Could not load surgical interventions: {data}")
+    return data
+
+
+@st.cache_data(ttl=5)
+def load_complications() -> list[dict[str, Any]]:
+    """Load all complications from API."""
+    status, data = request_json("GET", "/complications")
+    if status != 200:
+        raise RuntimeError(f"Could not load complications: {data}")
+    return data
+
+
 def infection_label(infection: dict[str, Any]) -> str:
     """Format an infection for display in selectboxes."""
     return f"{infection['name']} ({infection['id']})"
@@ -3991,6 +4011,18 @@ def medical_procedure_label(procedure: dict[str, Any]) -> str:
     """Format a medical procedure for display in selectboxes."""
     snomed_code = procedure.get("snomed_ct_code") or "-"
     return f"{procedure.get('id')} - {procedure.get('name')} (SNOMED-CT: {snomed_code})"
+
+
+def surgical_intervention_label(intervention: dict[str, Any]) -> str:
+    """Format a surgical intervention for display in selectboxes."""
+    snomed_code = intervention.get("snomed_ct_code") or "-"
+    return f"{intervention.get('id')} - {intervention.get('name')} (SNOMED-CT: {snomed_code})"
+
+
+def complication_label(complication: dict[str, Any]) -> str:
+    """Format a complication for display in selectboxes."""
+    snomed_code = complication.get("snomed_ct_code") or "-"
+    return f"{complication.get('id')} - {complication.get('name')} (SNOMED-CT: {snomed_code})"
 
 
 def render_infections_overview(infections: list[dict[str, Any]]) -> None:
@@ -4725,6 +4757,403 @@ def medical_procedures_tab() -> None:
     render_medical_procedure_crud_workspace(procedures)
 
 
+def render_surgical_interventions_overview(interventions: list[dict[str, Any]]) -> None:
+    """Render compact overview and surgical intervention list."""
+    cols = st.columns([2, 1])
+    with cols[0]:
+        st.markdown(
+            f"<span class='ui-badge'>Surgical Interventions: {len(interventions)}</span>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("<span class='ui-badge'>Operations: GET, POST, PUT, PATCH, DELETE</span>", unsafe_allow_html=True)
+    with cols[1]:
+        if st.button("Refresh now", width="stretch", key="refresh_surgical_interventions"):
+            refresh_data()
+
+    card_open(compact=True)
+    section_title("Current Surgical Interventions")
+    if interventions:
+        st.dataframe(interventions, width="stretch", hide_index=True)
+    else:
+        st.info("No surgical interventions available yet.")
+    card_close()
+
+
+def render_surgical_intervention_create_tab() -> None:
+    """Render create surgical intervention operation."""
+    with st.form("create_surgical_intervention_form"):
+        snomed_ct_code = st.text_input("SNOMED-CT code", placeholder="SNOMED-CT concept id")
+        name = st.text_input("Name", placeholder="Intervention name")
+        description = st.text_area("Description", placeholder="Optional")
+        submitted = st.form_submit_button("Create surgical intervention", width="stretch")
+
+        if submitted:
+            payload = {
+                "snomed_ct_code": snomed_ct_code.strip(),
+                "name": name.strip(),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("POST", "/surgical-interventions", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_surgical_intervention_read_tab(interventions: list[dict[str, Any]]) -> None:
+    """Render read single surgical intervention operation."""
+    if not interventions:
+        st.info("Create at least one surgical intervention to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Select surgical intervention",
+        options=interventions,
+        format_func=surgical_intervention_label,
+        key="read_surgical_intervention_select",
+    )
+    if st.button("Fetch surgical intervention", width="stretch"):
+        status_code, data = request_json("GET", f"/surgical-interventions/{selected['id']}")
+        show_api_result(status_code, data)
+
+
+def render_surgical_intervention_put_tab(interventions: list[dict[str, Any]]) -> None:
+    """Render full replace surgical intervention operation."""
+    if not interventions:
+        st.info("Create at least one surgical intervention to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Surgical intervention to replace",
+        options=interventions,
+        format_func=surgical_intervention_label,
+        key="put_surgical_intervention_select",
+    )
+
+    with st.form("put_surgical_intervention_form"):
+        snomed_ct_code = st.text_input("SNOMED-CT code", value=str(selected.get("snomed_ct_code") or ""))
+        name = st.text_input("Name", value=str(selected.get("name") or ""))
+        description = st.text_area("Description", value=str(selected.get("description") or ""))
+        submitted = st.form_submit_button("Replace surgical intervention", width="stretch")
+
+        if submitted:
+            payload = {
+                "snomed_ct_code": snomed_ct_code.strip(),
+                "name": name.strip(),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("PUT", f"/surgical-interventions/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_surgical_intervention_patch_tab(interventions: list[dict[str, Any]]) -> None:
+    """Render partial update surgical intervention operation."""
+    if not interventions:
+        st.info("Create at least one surgical intervention to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Surgical intervention to patch",
+        options=interventions,
+        format_func=surgical_intervention_label,
+        key="patch_surgical_intervention_select",
+    )
+
+    with st.form("patch_surgical_intervention_form"):
+        use_snomed_code = st.checkbox("Update SNOMED-CT code", key="patch_surgical_intervention_use_code")
+        patch_snomed_code = st.text_input(
+            "SNOMED-CT code",
+            value=str(selected.get("snomed_ct_code") or ""),
+            key="patch_surgical_intervention_code",
+        )
+
+        use_name = st.checkbox("Update name", key="patch_surgical_intervention_use_name")
+        patch_name = st.text_input(
+            "Name",
+            value=str(selected.get("name") or ""),
+            key="patch_surgical_intervention_name",
+        )
+
+        use_description = st.checkbox("Update description", key="patch_surgical_intervention_use_description")
+        patch_description = st.text_area(
+            "Description",
+            value=str(selected.get("description") or ""),
+            key="patch_surgical_intervention_description",
+        )
+
+        submitted = st.form_submit_button("Apply patch", width="stretch")
+
+        if submitted:
+            payload: dict[str, Any] = {}
+            if use_snomed_code:
+                payload["snomed_ct_code"] = patch_snomed_code.strip()
+            if use_name:
+                payload["name"] = patch_name.strip()
+            if use_description:
+                payload["description"] = optional_text(patch_description)
+
+            status_code, data = request_json("PATCH", f"/surgical-interventions/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_surgical_intervention_delete_tab(interventions: list[dict[str, Any]]) -> None:
+    """Render delete surgical intervention operation."""
+    if not interventions:
+        st.info("Create at least one surgical intervention to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Surgical intervention to delete",
+        options=interventions,
+        format_func=surgical_intervention_label,
+        key="delete_surgical_intervention_select",
+    )
+    confirm_delete = st.checkbox(
+        "I understand this action cannot be undone",
+        key="delete_surgical_intervention_confirm",
+    )
+    if st.button("Delete surgical intervention", type="primary", disabled=not confirm_delete, width="stretch"):
+        status_code, data = request_json("DELETE", f"/surgical-interventions/{selected['id']}")
+        show_api_result(status_code, data)
+        if 200 <= status_code < 300:
+            refresh_data()
+
+
+def render_surgical_intervention_crud_workspace(interventions: list[dict[str, Any]]) -> None:
+    """Render surgical intervention CRUD operations in compact tabs."""
+    card_open()
+    section_title("Surgical Interventions CRUD Workspace")
+    op_tabs = st.tabs(["Create (POST)", "Read One (GET)", "Replace (PUT)", "Patch (PATCH)", "Delete (DELETE)"])
+
+    with op_tabs[0]:
+        render_surgical_intervention_create_tab()
+    with op_tabs[1]:
+        render_surgical_intervention_read_tab(interventions)
+    with op_tabs[2]:
+        render_surgical_intervention_put_tab(interventions)
+    with op_tabs[3]:
+        render_surgical_intervention_patch_tab(interventions)
+    with op_tabs[4]:
+        render_surgical_intervention_delete_tab(interventions)
+
+    card_close()
+
+
+def surgical_interventions_tab() -> None:
+    """Render surgical interventions management UI."""
+    st.subheader("Surgical Interventions Management")
+    st.caption(f"Backend API: {API_BASE_URL}")
+
+    try:
+        interventions = load_surgical_interventions()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+
+    render_surgical_interventions_overview(interventions)
+    render_surgical_intervention_crud_workspace(interventions)
+
+
+def render_complications_overview(complications: list[dict[str, Any]]) -> None:
+    """Render compact overview and complication list."""
+    cols = st.columns([2, 1])
+    with cols[0]:
+        st.markdown(f"<span class='ui-badge'>Complications: {len(complications)}</span>", unsafe_allow_html=True)
+        st.markdown("<span class='ui-badge'>Operations: GET, POST, PUT, PATCH, DELETE</span>", unsafe_allow_html=True)
+    with cols[1]:
+        if st.button("Refresh now", width="stretch", key="refresh_complications"):
+            refresh_data()
+
+    card_open(compact=True)
+    section_title("Current Complications")
+    if complications:
+        st.dataframe(complications, width="stretch", hide_index=True)
+    else:
+        st.info("No complications available yet.")
+    card_close()
+
+
+def render_complication_create_tab() -> None:
+    """Render create complication operation."""
+    with st.form("create_complication_form"):
+        snomed_ct_code = st.text_input("SNOMED-CT code", placeholder="SNOMED-CT concept id")
+        name = st.text_input("Name", placeholder="Complication name")
+        description = st.text_area("Description", placeholder="Optional")
+        submitted = st.form_submit_button("Create complication", width="stretch")
+
+        if submitted:
+            payload = {
+                "snomed_ct_code": snomed_ct_code.strip(),
+                "name": name.strip(),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("POST", "/complications", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_complication_read_tab(complications: list[dict[str, Any]]) -> None:
+    """Render read single complication operation."""
+    if not complications:
+        st.info("Create at least one complication to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Select complication",
+        options=complications,
+        format_func=complication_label,
+        key="read_complication_select",
+    )
+    if st.button("Fetch complication", width="stretch"):
+        status_code, data = request_json("GET", f"/complications/{selected['id']}")
+        show_api_result(status_code, data)
+
+
+def render_complication_put_tab(complications: list[dict[str, Any]]) -> None:
+    """Render full replace complication operation."""
+    if not complications:
+        st.info("Create at least one complication to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Complication to replace",
+        options=complications,
+        format_func=complication_label,
+        key="put_complication_select",
+    )
+
+    with st.form("put_complication_form"):
+        snomed_ct_code = st.text_input("SNOMED-CT code", value=str(selected.get("snomed_ct_code") or ""))
+        name = st.text_input("Name", value=str(selected.get("name") or ""))
+        description = st.text_area("Description", value=str(selected.get("description") or ""))
+        submitted = st.form_submit_button("Replace complication", width="stretch")
+
+        if submitted:
+            payload = {
+                "snomed_ct_code": snomed_ct_code.strip(),
+                "name": name.strip(),
+                "description": optional_text(description),
+            }
+            status_code, data = request_json("PUT", f"/complications/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_complication_patch_tab(complications: list[dict[str, Any]]) -> None:
+    """Render partial update complication operation."""
+    if not complications:
+        st.info("Create at least one complication to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Complication to patch",
+        options=complications,
+        format_func=complication_label,
+        key="patch_complication_select",
+    )
+
+    with st.form("patch_complication_form"):
+        use_snomed_code = st.checkbox("Update SNOMED-CT code", key="patch_complication_use_code")
+        patch_snomed_code = st.text_input(
+            "SNOMED-CT code",
+            value=str(selected.get("snomed_ct_code") or ""),
+            key="patch_complication_code",
+        )
+
+        use_name = st.checkbox("Update name", key="patch_complication_use_name")
+        patch_name = st.text_input(
+            "Name",
+            value=str(selected.get("name") or ""),
+            key="patch_complication_name",
+        )
+
+        use_description = st.checkbox("Update description", key="patch_complication_use_description")
+        patch_description = st.text_area(
+            "Description",
+            value=str(selected.get("description") or ""),
+            key="patch_complication_description",
+        )
+
+        submitted = st.form_submit_button("Apply patch", width="stretch")
+
+        if submitted:
+            payload: dict[str, Any] = {}
+            if use_snomed_code:
+                payload["snomed_ct_code"] = patch_snomed_code.strip()
+            if use_name:
+                payload["name"] = patch_name.strip()
+            if use_description:
+                payload["description"] = optional_text(patch_description)
+
+            status_code, data = request_json("PATCH", f"/complications/{selected['id']}", payload)
+            show_api_result(status_code, data)
+            if 200 <= status_code < 300:
+                refresh_data()
+
+
+def render_complication_delete_tab(complications: list[dict[str, Any]]) -> None:
+    """Render delete complication operation."""
+    if not complications:
+        st.info("Create at least one complication to use this operation.")
+        return
+
+    selected = st.selectbox(
+        "Complication to delete",
+        options=complications,
+        format_func=complication_label,
+        key="delete_complication_select",
+    )
+    confirm_delete = st.checkbox(
+        "I understand this action cannot be undone",
+        key="delete_complication_confirm",
+    )
+    if st.button("Delete complication", type="primary", disabled=not confirm_delete, width="stretch"):
+        status_code, data = request_json("DELETE", f"/complications/{selected['id']}")
+        show_api_result(status_code, data)
+        if 200 <= status_code < 300:
+            refresh_data()
+
+
+def render_complication_crud_workspace(complications: list[dict[str, Any]]) -> None:
+    """Render complication CRUD operations in compact tabs."""
+    card_open()
+    section_title("Complications CRUD Workspace")
+    op_tabs = st.tabs(["Create (POST)", "Read One (GET)", "Replace (PUT)", "Patch (PATCH)", "Delete (DELETE)"])
+
+    with op_tabs[0]:
+        render_complication_create_tab()
+    with op_tabs[1]:
+        render_complication_read_tab(complications)
+    with op_tabs[2]:
+        render_complication_put_tab(complications)
+    with op_tabs[3]:
+        render_complication_patch_tab(complications)
+    with op_tabs[4]:
+        render_complication_delete_tab(complications)
+
+    card_close()
+
+
+def complications_tab() -> None:
+    """Render complications management UI."""
+    st.subheader("Complications Management")
+    st.caption(f"Backend API: {API_BASE_URL}")
+
+    try:
+        complications = load_complications()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+
+    render_complications_overview(complications)
+    render_complication_crud_workspace(complications)
+
+
 def main() -> None:
     """Run the Streamlit application."""
     st.set_page_config(page_title="Burn Unit UI", layout="wide")
@@ -4743,6 +5172,8 @@ def main() -> None:
             "Medications",
             "Antibiotics",
             "Medical Procedures",
+            "Surgical Interventions",
+            "Complications",
             "Microbiology Specimens",
             "Microbiology Agents",
             "Provenance/Destination",
@@ -4767,14 +5198,18 @@ def main() -> None:
     with tabs[7]:
         medical_procedures_tab()
     with tabs[8]:
-        microbiology_specimens_tab()
+        surgical_interventions_tab()
     with tabs[9]:
-        microbiology_agents_tab()
+        complications_tab()
     with tabs[10]:
-        provenance_destinations_tab()
+        microbiology_specimens_tab()
     with tabs[11]:
-        burn_etiologies_tab()
+        microbiology_agents_tab()
     with tabs[12]:
+        provenance_destinations_tab()
+    with tabs[13]:
+        burn_etiologies_tab()
+    with tabs[14]:
         infections_tab()
 
 
