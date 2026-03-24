@@ -5544,57 +5544,72 @@ def main() -> None:
     inject_style()
 
     st.title("Burn Unit Database")
-    st.caption("Unified light theme with compact CRUD workflow")
+    st.caption("Prioritized navigation: main overviews, core records, and grouped lookup tables")
 
-    tabs = st.tabs(
-        [
-            "Patient Overview",
-            "Patients",
-            "Burn Unit Case Overview",
-            "Burn Unit Cases",
-            "Pathologies",
-            "Medications",
-            "Antibiotics",
-            "Medical Procedures",
-            "Surgical Interventions",
-            "Complications",
-            "Microbiology Specimens",
-            "Microbiology Agents",
-            "Provenance/Destination",
-            "Burn Etiologies",
-            "Infections",
-        ]
+    page = st.sidebar.radio(
+        "Navigate",
+        options=["Main", "Core Records", "Lookup Tables"],
+        index=0,
     )
-    with tabs[0]:
-        patient_overview_tab()
-    with tabs[1]:
-        patients_tab()
-    with tabs[2]:
-        burn_unit_case_overview_tab()
-    with tabs[3]:
-        burn_unit_cases_tab()
-    with tabs[4]:
-        pathologies_tab()
-    with tabs[5]:
-        medications_tab()
-    with tabs[6]:
-        antibiotics_tab()
-    with tabs[7]:
-        medical_procedures_tab()
-    with tabs[8]:
-        surgical_interventions_tab()
-    with tabs[9]:
-        complications_tab()
-    with tabs[10]:
-        microbiology_specimens_tab()
-    with tabs[11]:
-        microbiology_agents_tab()
-    with tabs[12]:
-        provenance_destinations_tab()
-    with tabs[13]:
-        burn_etiologies_tab()
-    with tabs[14]:
-        infections_tab()
+
+    if page == "Main":
+        main_tabs = st.tabs(["Burn Unit Case Overview", "Patient Overview"])
+        with main_tabs[0]:
+            burn_unit_case_overview_tab()
+        with main_tabs[1]:
+            patient_overview_tab()
+
+    elif page == "Core Records":
+        core_tabs = st.tabs(["Burn Unit Cases", "Patients"])
+        with core_tabs[0]:
+            burn_unit_cases_tab()
+        with core_tabs[1]:
+            patients_tab()
+
+    else:
+        st.subheader("Lookup Tables")
+        st.caption("Grouped by workflow to keep CRUD operations easier to find.")
+
+        lookup_groups = st.tabs(["Burn Clinical", "Patient and System"])
+
+        with lookup_groups[0]:
+            clinical_tabs = st.tabs(
+                [
+                    "Infections",
+                    "Antibiotics",
+                    "Medical Procedures",
+                    "Surgical Interventions",
+                    "Complications",
+                    "Microbiology Specimens",
+                    "Microbiology Agents",
+                    "Burn Etiologies",
+                ]
+            )
+            with clinical_tabs[0]:
+                infections_tab()
+            with clinical_tabs[1]:
+                antibiotics_tab()
+            with clinical_tabs[2]:
+                medical_procedures_tab()
+            with clinical_tabs[3]:
+                surgical_interventions_tab()
+            with clinical_tabs[4]:
+                complications_tab()
+            with clinical_tabs[5]:
+                microbiology_specimens_tab()
+            with clinical_tabs[6]:
+                microbiology_agents_tab()
+            with clinical_tabs[7]:
+                burn_etiologies_tab()
+
+        with lookup_groups[1]:
+            support_tabs = st.tabs(["Pathologies", "Medications", "Provenance/Destination"])
+            with support_tabs[0]:
+                pathologies_tab()
+            with support_tabs[1]:
+                medications_tab()
+            with support_tabs[2]:
+                provenance_destinations_tab()
 
 
 if __name__ == "__main__":
