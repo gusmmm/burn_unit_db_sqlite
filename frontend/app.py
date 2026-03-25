@@ -3327,6 +3327,7 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
                     ),
                     "Date started": row.get("date_started") or "",
                     "Date stopped": row.get("date_stopped") or "",
+                    "Before admission": "Yes" if bool(row.get("before_admission")) else "No",
                     "Note": row.get("note") or "",
                 }
             )
@@ -3348,6 +3349,10 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
                 )
                 date_started = st.text_input("Date started (YYYY-MM-DD)", placeholder="Optional")
                 date_stopped = st.text_input("Date stopped (YYYY-MM-DD)", placeholder="Optional")
+                before_admission = st.checkbox(
+                    "Procedure was done before admission",
+                    value=False,
+                )
                 note = st.text_area("Note", placeholder="Optional")
 
                 if st.form_submit_button("Add Case Procedure"):
@@ -3362,6 +3367,7 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
                             "procedure_id": selected_procedure["id"],
                             "date_started": parsed_date_started,
                             "date_stopped": parsed_date_stopped,
+                            "before_admission": before_admission,
                             "note": optional_text(note),
                         }
                         status_code, data = request_json("POST", "/case-procedures", payload)
@@ -3379,6 +3385,7 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
                         "procedure_id": row["procedure_id"],
                         "date_started": row.get("date_started") or "",
                         "date_stopped": row.get("date_stopped") or "",
+                        "before_admission": bool(row.get("before_admission")),
                         "note": row.get("note") or "",
                         "label": (
                             f"{row['case_id']} / {row['procedure_id']} - "
@@ -3415,6 +3422,10 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
                     "Update date stopped (YYYY-MM-DD)",
                     value=selected_assoc.get("date_stopped", ""),
                 )
+                patch_before_admission = st.checkbox(
+                    "Procedure was done before admission",
+                    value=selected_assoc.get("before_admission", False),
+                )
                 patch_note = st.text_area("Update note", value=selected_assoc.get("note", ""))
 
                 if st.form_submit_button("Update Case Procedure"):
@@ -3428,6 +3439,7 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
                             "procedure_id": edited_procedure["id"],
                             "date_started": parsed_date_started,
                             "date_stopped": parsed_date_stopped,
+                            "before_admission": patch_before_admission,
                             "note": optional_text(patch_note),
                         }
                         status_code, data = request_json(

@@ -264,6 +264,7 @@ CREATE TABLE IF NOT EXISTS case_procedures (
     procedure_id INTEGER NOT NULL,
     date_started DATE,
     date_stopped DATE,
+    before_admission BOOLEAN NOT NULL DEFAULT 0,
     note TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

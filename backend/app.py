@@ -759,6 +759,7 @@ class CaseProcedureCreate(BaseModel):
     procedure_id: int
     date_started: str | None = None
     date_stopped: str | None = None
+    before_admission: bool = False
     note: str | None = None
 
 
@@ -769,6 +770,7 @@ class CaseProcedurePatch(BaseModel):
     procedure_id: int | None = None
     date_started: str | None = None
     date_stopped: str | None = None
+    before_admission: bool | None = None
     note: str | None = None
 
 
@@ -779,6 +781,7 @@ class CaseProcedureRead(BaseModel):
     procedure_id: int
     date_started: str | None = None
     date_stopped: str | None = None
+    before_admission: bool = False
     note: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
@@ -4052,15 +4055,17 @@ def create_case_procedure(payload: CaseProcedureCreate) -> dict[str, Any]:
                     procedure_id,
                     date_started,
                     date_stopped,
+                    before_admission,
                     note
                 )
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload.case_id,
                     payload.procedure_id,
                     payload.date_started,
                     payload.date_stopped,
+                    payload.before_admission,
                     payload.note,
                 ),
             )
@@ -4100,6 +4105,7 @@ def patch_case_procedure(
         "procedure_id",
         "date_started",
         "date_stopped",
+        "before_admission",
         "note",
     }
     assignments: list[str] = []
