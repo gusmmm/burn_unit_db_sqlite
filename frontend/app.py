@@ -8,6 +8,7 @@ from typing import Any
 
 import requests
 import streamlit as st
+from case_export_module import render_case_export_module
 
 ALLOWED_GENDERS = ["M", "F", "other"]
 ALLOWED_PATHOLOGY_STATUSES = ["Active", "Inactive"]
@@ -5548,6 +5549,46 @@ def complications_tab() -> None:
     render_complication_crud_workspace(complications)
 
 
+def case_export_tab() -> None:
+    """Render case export UI that generates markdown and PDF downloads for a selected case."""
+    st.caption(f"Backend API: {API_BASE_URL}")
+    try:
+        burn_unit_cases = load_burn_unit_cases()
+        patients = load_patients()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+
+    render_case_export_module(
+        burn_unit_cases=burn_unit_cases,
+        patients=patients,
+        load_addresses=load_addresses,
+        load_pathologies=load_pathologies,
+        load_patient_pathologies=load_patient_pathologies,
+        load_medications=load_medications,
+        load_patient_medications=load_patient_medications,
+        load_provenance_destinations=load_provenance_destinations,
+        load_burn_etiologies=load_burn_etiologies,
+        load_case_burns=load_case_burns,
+        load_case_associated_injuries=load_case_associated_injuries,
+        load_case_infections=load_case_infections,
+        load_case_antibiotics=load_case_antibiotics,
+        load_case_procedures=load_case_procedures,
+        load_case_surgical_interventions=load_case_surgical_interventions,
+        load_case_complications=load_case_complications,
+        load_case_microbiology=load_case_microbiology,
+        load_infections=load_infections,
+        load_antibiotics=load_antibiotics,
+        load_medical_procedures=load_medical_procedures,
+        load_surgical_interventions=load_surgical_interventions,
+        load_complications=load_complications,
+        load_microbiology_specimens=load_microbiology_specimens,
+        load_microbiology_agents=load_microbiology_agents,
+        load_burn_depths=load_burn_depths,
+        load_anatomic_locations=load_anatomic_locations,
+    )
+
+
 def main() -> None:
     """Run the Streamlit application."""
     st.set_page_config(page_title="Burn Unit UI", layout="wide")
@@ -5563,11 +5604,13 @@ def main() -> None:
     )
 
     if page == "Main":
-        main_tabs = st.tabs(["Burn Unit Case Overview", "Patient Overview"])
+        main_tabs = st.tabs(["Burn Unit Case Overview", "Patient Overview", "Case Export"])
         with main_tabs[0]:
             burn_unit_case_overview_tab()
         with main_tabs[1]:
             patient_overview_tab()
+        with main_tabs[2]:
+            case_export_tab()
 
     elif page == "Core Records":
         core_tabs = st.tabs(["Burn Unit Cases", "Patients"])
