@@ -260,6 +260,15 @@ def load_burn_etiologies() -> list[dict[str, Any]]:
 
 
 @st.cache_data(ttl=5)
+def load_inhalation_injuries() -> list[dict[str, Any]]:
+    """Load all inhalation_injury rows from API."""
+    status, data = request_json("GET", "/inhalation-injuries")
+    if status != 200:
+        raise RuntimeError(f"Could not load inhalation injuries: {data}")
+    return data
+
+
+@st.cache_data(ttl=5)
 def load_burn_unit_cases() -> list[dict[str, Any]]:
     """Load all burn_unit_cases rows from API."""
     status, data = request_json("GET", "/burn-unit-cases")
@@ -355,6 +364,11 @@ def burn_etiology_label(item: dict[str, Any]) -> str:
     return f"{item.get('id')} - {item.get('name')}"
 
 
+def inhalation_injury_label(item: dict[str, Any]) -> str:
+    """Build human-readable inhalation injury label for selectors."""
+    return f"{item.get('id')} - {item.get('name')}"
+
+
 def burn_unit_case_label(case_row: dict[str, Any], patients_by_id: dict[int, dict[str, Any]]) -> str:
     """Build human-readable burn unit case label for selectors."""
     patient_id = case_row.get("patient_id")
@@ -402,6 +416,7 @@ def refresh_data() -> None:
     load_antibiotics.clear()
     load_provenance_destinations.clear()
     load_burn_etiologies.clear()
+    load_inhalation_injuries.clear()
     load_burn_unit_cases.clear()
     load_infections.clear()
     load_case_infections.clear()
@@ -562,33 +577,38 @@ def render_patch_tab(patients: list[dict[str, Any]], addr_opts: list[dict[str, A
         format_func=patient_label,
         key="patch_patient_select",
     )
+    selected_patient_id = int(selected.get("id"))
 
     with st.form("patch_patient_form"):
-        use_name = st.checkbox("Update name")
-        patch_name = st.text_input("Name", value=str(selected.get("name", "")))
+        use_name = st.checkbox("Update name", key=f"patch_patient_use_name_{selected_patient_id}")
+        patch_name = st.text_input(
+            "Name",
+            value=str(selected.get("name", "")),
+            key=f"patch_patient_name_{selected_patient_id}",
+        )
 
-        use_birth = st.checkbox("Update birth date")
+        use_birth = st.checkbox("Update birth date", key=f"patch_patient_use_birth_{selected_patient_id}")
         patch_birth = st.text_input(
             "Birth date (YYYY-MM-DD)",
             value=birth_date_text(selected.get("birth_date")),
-            key="patch_birth_date",
+            key=f"patch_birth_date_{selected_patient_id}",
         )
 
-        use_gender = st.checkbox("Update gender")
+        use_gender = st.checkbox("Update gender", key=f"patch_patient_use_gender_{selected_patient_id}")
         patch_gender = st.selectbox(
             "Gender",
             options=ALLOWED_GENDERS,
             index=ALLOWED_GENDERS.index(selected.get("gender")) if selected.get("gender") in ALLOWED_GENDERS else 0,
-            key="patch_gender",
+            key=f"patch_gender_{selected_patient_id}",
         )
 
-        use_address = st.checkbox("Update address")
+        use_address = st.checkbox("Update address", key=f"patch_patient_use_address_{selected_patient_id}")
         patch_address = st.selectbox(
             "Address (municipio)",
             options=addr_opts,
             format_func=lambda x: x["label"],
             index=address_option_index(addr_opts, selected.get("address")),
-            key="patch_address_select",
+            key=f"patch_address_select_{selected_patient_id}",
         )
 
         submitted = st.form_submit_button("Apply patch", width="stretch")
@@ -607,6 +627,10 @@ def render_patch_tab(patients: list[dict[str, Any]], addr_opts: list[dict[str, A
                 payload["gender"] = patch_gender
             if use_address:
                 payload["address"] = patch_address["id"]
+
+            if not payload:
+                st.warning("Select at least one field to patch.")
+                return
 
             status, data = request_json("PATCH", f"/patients/{selected['id']}", payload)
             show_api_result(status, data)
@@ -1750,6 +1774,7 @@ def render_burn_unit_cases_overview(
     patients: list[dict[str, Any]],
     provenance_destinations: list[dict[str, Any]],
     burn_etiologies: list[dict[str, Any]],
+    inhalation_injuries: list[dict[str, Any]],
 ) -> None:
     """Render compact overview and burn unit case list."""
     cols = st.columns([2, 1])
@@ -1761,6 +1786,10 @@ def render_burn_unit_cases_overview(
             unsafe_allow_html=True,
         )
         st.markdown(f"<span class='ui-badge'>Burn etiologies: {len(burn_etiologies)}</span>", unsafe_allow_html=True)
+        st.markdown(
+            f"<span class='ui-badge'>Inhalation injuries: {len(inhalation_injuries)}</span>",
+            unsafe_allow_html=True,
+        )
         st.markdown("<span class='ui-badge'>Operations: GET, POST, PUT, PATCH, DELETE</span>", unsafe_allow_html=True)
     with cols[1]:
         if st.button("Refresh now", width="stretch", key="refresh_burn_unit_cases"):
@@ -1779,13 +1808,14 @@ def render_burn_unit_case_create_tab(
     patients: list[dict[str, Any]],
     provenance_destinations: list[dict[str, Any]],
     burn_etiologies: list[dict[str, Any]],
+    inhalation_injuries: list[dict[str, Any]],
 ) -> None:
     """Render create burn unit case operation."""
     if not patients:
         st.info("No patients available. Create patients first in the Patients tab.")
         return
 
-    patient_options = sorted(patients, key=lambda row: int(row.get("id", 0)))
+    patient_options = [None] + sorted(patients, key=lambda row: int(row.get("id", 0)))
     provenance_options = [{"id": None, "label": "Not set"}] + [
         {"id": row.get("id"), "label": provenance_destination_label(row)}
         for row in sorted(provenance_destinations, key=lambda item: int(item.get("id", 0)))
@@ -1794,14 +1824,19 @@ def render_burn_unit_case_create_tab(
         {"id": row.get("id"), "label": burn_etiology_label(row)}
         for row in sorted(burn_etiologies, key=lambda item: int(item.get("id", 0)))
     ]
-    optional_bools: list[bool | None] = [None, True, False]
+    inhalation_injury_options = [{"id": None, "label": "Not set"}] + [
+        {"id": row.get("id"), "label": inhalation_injury_label(row)}
+        for row in sorted(inhalation_injuries, key=lambda item: int(item.get("id", 0)))
+    ]
+    optional_bool_options = ["Not set", "Yes", "No"]
+    optional_bool_map: dict[str, bool | None] = {"Not set": None, "Yes": True, "No": False}
 
-    with st.form("create_burn_unit_case_form"):
-        case_id = st.number_input("Case ID", min_value=1, step=1, format="%d")
+    with st.form("create_burn_unit_case_form", clear_on_submit=True):
+        case_id = st.text_input("Case ID", placeholder="Required integer")
         patient = st.selectbox(
             "Patient",
             options=patient_options,
-            format_func=patient_label,
+            format_func=lambda row: "Select patient" if row is None else patient_label(row),
             key="create_burn_case_patient",
         )
         tbsa_burned = st.text_input("TBSA burned (%)", placeholder="Optional numeric value")
@@ -1832,16 +1867,24 @@ def render_burn_unit_case_create_tab(
             format_func=lambda option: option["label"],
             key="create_burn_case_etiology",
         )
-        violence_related = st.selectbox(
+        inhalation_injury = st.selectbox(
+            "Inhalation injury",
+            options=inhalation_injury_options,
+            format_func=lambda option: option["label"],
+            key="create_burn_case_inhalation_injury",
+        )
+        violence_related_label = st.radio(
             "Violence related",
-            options=optional_bools,
-            format_func=lambda value: "Unknown" if value is None else ("Yes" if value else "No"),
+            options=optional_bool_options,
+            index=0,
+            horizontal=True,
             key="create_burn_case_violence",
         )
-        suicide_attempt = st.selectbox(
+        suicide_attempt_label = st.radio(
             "Suicide attempt",
-            options=optional_bools,
-            format_func=lambda value: "Unknown" if value is None else ("Yes" if value else "No"),
+            options=optional_bool_options,
+            index=0,
+            horizontal=True,
             key="create_burn_case_suicide",
         )
         accident_type = st.selectbox(
@@ -1850,22 +1893,25 @@ def render_burn_unit_case_create_tab(
             format_func=lambda value: "Not set" if value is None else value,
             key="create_burn_case_accident_type",
         )
-        wildfire = st.selectbox(
+        wildfire_label = st.radio(
             "Wildfire",
-            options=optional_bools,
-            format_func=lambda value: "Unknown" if value is None else ("Yes" if value else "No"),
+            options=optional_bool_options,
+            index=0,
+            horizontal=True,
             key="create_burn_case_wildfire",
         )
-        bonfire_fogueira = st.selectbox(
+        bonfire_fogueira_label = st.radio(
             "Bonfire/Fogueira",
-            options=optional_bools,
-            format_func=lambda value: "Unknown" if value is None else ("Yes" if value else "No"),
+            options=optional_bool_options,
+            index=0,
+            horizontal=True,
             key="create_burn_case_bonfire",
         )
-        fireplace_lareira = st.selectbox(
+        fireplace_lareira_label = st.radio(
             "Fireplace/Lareira",
-            options=optional_bools,
-            format_func=lambda value: "Unknown" if value is None else ("Yes" if value else "No"),
+            options=optional_bool_options,
+            index=0,
+            horizontal=True,
             key="create_burn_case_fireplace",
         )
         note = st.text_area("Note", placeholder="Optional note")
@@ -1878,9 +1924,22 @@ def render_burn_unit_case_create_tab(
         submitted = st.form_submit_button("Create burn unit case", width="stretch")
 
         if submitted:
+            violence_related = optional_bool_map[violence_related_label]
+            suicide_attempt = optional_bool_map[suicide_attempt_label]
+            wildfire = optional_bool_map[wildfire_label]
+            bonfire_fogueira = optional_bool_map[bonfire_fogueira_label]
+            fireplace_lareira = optional_bool_map[fireplace_lareira_label]
+
+            if not case_id.strip():
+                st.error("Case ID is required.")
+                return
+            if patient is None:
+                st.error("Patient is required.")
+                return
+
             try:
                 payload = {
-                    "id": int(case_id),
+                    "id": int(case_id.strip()),
                     "patient_id": int(patient["id"]),
                     "TBSA_burned": parse_optional_float_input(tbsa_burned),
                     "admission_date": parse_optional_date_input(admission_date),
@@ -1890,6 +1949,7 @@ def render_burn_unit_case_create_tab(
                     "release_destination": release_destination["id"],
                     "burn_mecanism": burn_mecanism,
                     "burn_etiology": burn_etiology["id"],
+                    "inhalation_injury": inhalation_injury["id"],
                     "violence_related": violence_related,
                     "suicide_attempt": suicide_attempt,
                     "accident_type": accident_type,
@@ -1934,6 +1994,7 @@ def render_burn_unit_case_put_tab(
     patients: list[dict[str, Any]],
     provenance_destinations: list[dict[str, Any]],
     burn_etiologies: list[dict[str, Any]],
+    inhalation_injuries: list[dict[str, Any]],
     patients_by_id: dict[int, dict[str, Any]],
 ) -> None:
     """Render full replace burn unit case operation."""
@@ -1952,6 +2013,10 @@ def render_burn_unit_case_put_tab(
     burn_etiology_options = [{"id": None, "label": "Not set"}] + [
         {"id": row.get("id"), "label": burn_etiology_label(row)}
         for row in sorted(burn_etiologies, key=lambda item: int(item.get("id", 0)))
+    ]
+    inhalation_injury_options = [{"id": None, "label": "Not set"}] + [
+        {"id": row.get("id"), "label": inhalation_injury_label(row)}
+        for row in sorted(inhalation_injuries, key=lambda item: int(item.get("id", 0)))
     ]
     optional_bools: list[bool | None] = [None, True, False]
 
@@ -2007,6 +2072,13 @@ def render_burn_unit_case_put_tab(
             format_func=lambda option: option["label"],
             index=find_index_by_key(burn_etiology_options, "id", selected.get("burn_etiology")),
             key="put_burn_case_etiology",
+        )
+        inhalation_injury = st.selectbox(
+            "Inhalation injury",
+            options=inhalation_injury_options,
+            format_func=lambda option: option["label"],
+            index=find_index_by_key(inhalation_injury_options, "id", selected.get("inhalation_injury")),
+            key="put_burn_case_inhalation_injury",
         )
         normalized_violence = normalize_optional_bool(selected.get("violence_related"))
         violence_related = st.selectbox(
@@ -2083,6 +2155,7 @@ def render_burn_unit_case_put_tab(
                     "release_destination": release_destination["id"],
                     "burn_mecanism": burn_mecanism,
                     "burn_etiology": burn_etiology["id"],
+                    "inhalation_injury": inhalation_injury["id"],
                     "violence_related": violence_related,
                     "suicide_attempt": suicide_attempt,
                     "accident_type": accident_type,
@@ -2107,6 +2180,7 @@ def render_burn_unit_case_patch_tab(
     patients: list[dict[str, Any]],
     provenance_destinations: list[dict[str, Any]],
     burn_etiologies: list[dict[str, Any]],
+    inhalation_injuries: list[dict[str, Any]],
     patients_by_id: dict[int, dict[str, Any]],
 ) -> None:
     """Render partial update burn unit case operation."""
@@ -2114,164 +2188,275 @@ def render_burn_unit_case_patch_tab(
         st.info("Create at least one burn unit case to use this operation.")
         return
 
-    no_change = "__NO_CHANGE__"
-    patient_patch_options = [{"id": no_change, "label": "No change"}] + [
-        {"id": row.get("id"), "label": patient_label(row)}
-        for row in sorted(patients, key=lambda item: int(item.get("id", 0)))
-    ]
-    provenance_patch_options = [{"id": no_change, "label": "No change"}, {"id": None, "label": "Not set"}] + [
-        {"id": row.get("id"), "label": provenance_destination_label(row)}
-        for row in sorted(provenance_destinations, key=lambda item: int(item.get("id", 0)))
-    ]
-    burn_etiology_patch_options = [{"id": no_change, "label": "No change"}, {"id": None, "label": "Not set"}] + [
-        {"id": row.get("id"), "label": burn_etiology_label(row)}
-        for row in sorted(burn_etiologies, key=lambda item: int(item.get("id", 0)))
-    ]
-
     selected = st.selectbox(
         "Burn unit case to patch",
         options=burn_unit_cases,
         format_func=lambda row: burn_unit_case_label(row, patients_by_id),
         key="patch_burn_unit_case_select",
     )
+    selected_case_id = int(selected.get("id"))
+
+    patient_options = sorted(patients, key=lambda item: int(item.get("id", 0)))
+    if not patient_options:
+        patient_options = [{"id": selected.get("patient_id"), "name": "Unknown patient"}]
+    provenance_options = [{"id": None, "label": "Not set"}] + [
+        {"id": row.get("id"), "label": provenance_destination_label(row)}
+        for row in sorted(provenance_destinations, key=lambda item: int(item.get("id", 0)))
+    ]
+    burn_etiology_options = [{"id": None, "label": "Not set"}] + [
+        {"id": row.get("id"), "label": burn_etiology_label(row)}
+        for row in sorted(burn_etiologies, key=lambda item: int(item.get("id", 0)))
+    ]
+    inhalation_injury_options = [{"id": None, "label": "Not set"}] + [
+        {"id": row.get("id"), "label": inhalation_injury_label(row)}
+        for row in sorted(inhalation_injuries, key=lambda item: int(item.get("id", 0)))
+    ]
+    optional_bools: list[bool | None] = [None, True, False]
+    burn_mecanism_options: list[str | None] = [None, *ALLOWED_BURN_MECANISMS]
+    accident_type_options: list[str | None] = [None, *ALLOWED_ACCIDENT_TYPES]
+    special_forces_options: list[str | None] = [None, *ALLOWED_SPECIAL_FORCES]
 
     with st.form("patch_burn_unit_case_form"):
+        use_patient = st.checkbox("Update patient", key=f"patch_burn_case_use_patient_{selected_case_id}")
         patch_patient = st.selectbox(
             "Patient",
-            options=patient_patch_options,
-            format_func=lambda option: option["label"],
-            key="patch_burn_case_patient",
+            options=patient_options,
+            format_func=patient_label,
+            index=find_index_by_key(patient_options, "id", selected.get("patient_id")),
+            key=f"patch_burn_case_patient_{selected_case_id}",
         )
-        patch_tbsa_burned = st.text_input("TBSA burned (%)", placeholder="Leave empty to keep unchanged")
+
+        use_tbsa = st.checkbox("Update TBSA burned", key=f"patch_burn_case_use_tbsa_{selected_case_id}")
+        patch_tbsa_burned = st.text_input(
+            "TBSA burned (%)",
+            value=str(selected.get("TBSA_burned") or ""),
+            key=f"patch_burn_case_tbsa_{selected_case_id}",
+        )
+
+        use_admission_date = st.checkbox(
+            "Update admission date",
+            key=f"patch_burn_case_use_admission_date_{selected_case_id}",
+        )
         patch_admission_date = st.text_input(
             "Admission date (YYYY-MM-DD)",
-            placeholder="Leave empty to keep unchanged",
+            value=str(selected.get("admission_date") or ""),
+            key=f"patch_burn_case_admission_date_{selected_case_id}",
         )
-        patch_burn_date = st.text_input("Burn date (YYYY-MM-DD)", placeholder="Leave empty to keep unchanged")
+
+        use_burn_date = st.checkbox("Update burn date", key=f"patch_burn_case_use_burn_date_{selected_case_id}")
+        patch_burn_date = st.text_input(
+            "Burn date (YYYY-MM-DD)",
+            value=str(selected.get("burn_date") or ""),
+            key=f"patch_burn_case_burn_date_{selected_case_id}",
+        )
+
+        use_release_date = st.checkbox("Update release date", key=f"patch_burn_case_use_release_date_{selected_case_id}")
         patch_release_date = st.text_input(
             "Release date (YYYY-MM-DD)",
-            placeholder="Leave empty to keep unchanged",
+            value=str(selected.get("release_date") or ""),
+            key=f"patch_burn_case_release_date_{selected_case_id}",
+        )
+
+        use_admission_provenance = st.checkbox(
+            "Update admission provenance",
+            key=f"patch_burn_case_use_admission_provenance_{selected_case_id}",
         )
         patch_admission_provenance = st.selectbox(
             "Admission provenance",
-            options=provenance_patch_options,
+            options=provenance_options,
             format_func=lambda option: option["label"],
-            key="patch_burn_case_admission_provenance",
+            index=find_index_by_key(provenance_options, "id", selected.get("admission_provenance")),
+            key=f"patch_burn_case_admission_provenance_{selected_case_id}",
+        )
+
+        use_release_destination = st.checkbox(
+            "Update release destination",
+            key=f"patch_burn_case_use_release_destination_{selected_case_id}",
         )
         patch_release_destination = st.selectbox(
             "Release destination",
-            options=provenance_patch_options,
+            options=provenance_options,
             format_func=lambda option: option["label"],
-            key="patch_burn_case_release_destination",
+            index=find_index_by_key(provenance_options, "id", selected.get("release_destination")),
+            key=f"patch_burn_case_release_destination_{selected_case_id}",
         )
+
+        use_burn_mecanism = st.checkbox("Update burn mecanism", key=f"patch_burn_case_use_mecanism_{selected_case_id}")
         patch_burn_mecanism = st.selectbox(
             "Burn mecanism",
-            options=[no_change, None, *ALLOWED_BURN_MECANISMS],
-            format_func=lambda value: "No change" if value == no_change else ("Not set" if value is None else value),
-            key="patch_burn_case_mecanism",
+            options=burn_mecanism_options,
+            format_func=lambda value: "Not set" if value is None else value,
+            index=burn_mecanism_options.index(selected.get("burn_mecanism"))
+            if selected.get("burn_mecanism") in burn_mecanism_options
+            else 0,
+            key=f"patch_burn_case_mecanism_{selected_case_id}",
         )
+
+        use_burn_etiology = st.checkbox("Update burn etiology", key=f"patch_burn_case_use_etiology_{selected_case_id}")
         patch_burn_etiology = st.selectbox(
             "Burn etiology",
-            options=burn_etiology_patch_options,
+            options=burn_etiology_options,
             format_func=lambda option: option["label"],
-            key="patch_burn_case_etiology",
+            index=find_index_by_key(burn_etiology_options, "id", selected.get("burn_etiology")),
+            key=f"patch_burn_case_etiology_{selected_case_id}",
+        )
+
+        use_inhalation_injury = st.checkbox(
+            "Update inhalation injury",
+            key=f"patch_burn_case_use_inhalation_injury_{selected_case_id}",
+        )
+        patch_inhalation_injury = st.selectbox(
+            "Inhalation injury",
+            options=inhalation_injury_options,
+            format_func=lambda option: option["label"],
+            index=find_index_by_key(inhalation_injury_options, "id", selected.get("inhalation_injury")),
+            key=f"patch_burn_case_inhalation_injury_{selected_case_id}",
+        )
+
+        use_violence_related = st.checkbox(
+            "Update violence related",
+            key=f"patch_burn_case_use_violence_{selected_case_id}",
         )
         patch_violence_related = st.selectbox(
             "Violence related",
-            options=[no_change, None, True, False],
-            format_func=lambda value: "No change"
-            if value == no_change
-            else ("Unknown" if value is None else ("Yes" if value else "No")),
-            key="patch_burn_case_violence",
+            options=optional_bools,
+            format_func=lambda value: "Unknown" if value is None else ("Yes" if value else "No"),
+            index=optional_bools.index(normalize_optional_bool(selected.get("violence_related")))
+            if normalize_optional_bool(selected.get("violence_related")) in optional_bools
+            else 0,
+            key=f"patch_burn_case_violence_{selected_case_id}",
+        )
+
+        use_suicide_attempt = st.checkbox(
+            "Update suicide attempt",
+            key=f"patch_burn_case_use_suicide_{selected_case_id}",
         )
         patch_suicide_attempt = st.selectbox(
             "Suicide attempt",
-            options=[no_change, None, True, False],
-            format_func=lambda value: "No change"
-            if value == no_change
-            else ("Unknown" if value is None else ("Yes" if value else "No")),
-            key="patch_burn_case_suicide",
+            options=optional_bools,
+            format_func=lambda value: "Unknown" if value is None else ("Yes" if value else "No"),
+            index=optional_bools.index(normalize_optional_bool(selected.get("suicide_attempt")))
+            if normalize_optional_bool(selected.get("suicide_attempt")) in optional_bools
+            else 0,
+            key=f"patch_burn_case_suicide_{selected_case_id}",
+        )
+
+        use_accident_type = st.checkbox(
+            "Update accident type",
+            key=f"patch_burn_case_use_accident_type_{selected_case_id}",
         )
         patch_accident_type = st.selectbox(
             "Accident type",
-            options=[no_change, None, *ALLOWED_ACCIDENT_TYPES],
-            format_func=lambda value: "No change" if value == no_change else ("Not set" if value is None else value),
-            key="patch_burn_case_accident_type",
+            options=accident_type_options,
+            format_func=lambda value: "Not set" if value is None else value,
+            index=accident_type_options.index(selected.get("accident_type"))
+            if selected.get("accident_type") in accident_type_options
+            else 0,
+            key=f"patch_burn_case_accident_type_{selected_case_id}",
         )
+
+        use_wildfire = st.checkbox("Update wildfire", key=f"patch_burn_case_use_wildfire_{selected_case_id}")
         patch_wildfire = st.selectbox(
             "Wildfire",
-            options=[no_change, None, True, False],
-            format_func=lambda value: "No change"
-            if value == no_change
-            else ("Unknown" if value is None else ("Yes" if value else "No")),
-            key="patch_burn_case_wildfire",
+            options=optional_bools,
+            format_func=lambda value: "Unknown" if value is None else ("Yes" if value else "No"),
+            index=optional_bools.index(normalize_optional_bool(selected.get("wildfire")))
+            if normalize_optional_bool(selected.get("wildfire")) in optional_bools
+            else 0,
+            key=f"patch_burn_case_wildfire_{selected_case_id}",
         )
+
+        use_bonfire = st.checkbox("Update bonfire/fogueira", key=f"patch_burn_case_use_bonfire_{selected_case_id}")
         patch_bonfire_fogueira = st.selectbox(
             "Bonfire/Fogueira",
-            options=[no_change, None, True, False],
-            format_func=lambda value: "No change"
-            if value == no_change
-            else ("Unknown" if value is None else ("Yes" if value else "No")),
-            key="patch_burn_case_bonfire",
+            options=optional_bools,
+            format_func=lambda value: "Unknown" if value is None else ("Yes" if value else "No"),
+            index=optional_bools.index(normalize_optional_bool(selected.get("bonfire_fogueira")))
+            if normalize_optional_bool(selected.get("bonfire_fogueira")) in optional_bools
+            else 0,
+            key=f"patch_burn_case_bonfire_{selected_case_id}",
         )
+
+        use_fireplace = st.checkbox("Update fireplace/lareira", key=f"patch_burn_case_use_fireplace_{selected_case_id}")
         patch_fireplace_lareira = st.selectbox(
             "Fireplace/Lareira",
-            options=[no_change, None, True, False],
-            format_func=lambda value: "No change"
-            if value == no_change
-            else ("Unknown" if value is None else ("Yes" if value else "No")),
-            key="patch_burn_case_fireplace",
+            options=optional_bools,
+            format_func=lambda value: "Unknown" if value is None else ("Yes" if value else "No"),
+            index=optional_bools.index(normalize_optional_bool(selected.get("fireplace_lareira")))
+            if normalize_optional_bool(selected.get("fireplace_lareira")) in optional_bools
+            else 0,
+            key=f"patch_burn_case_fireplace_{selected_case_id}",
         )
-        patch_note = st.text_area("Note", placeholder="Leave empty to keep unchanged")
+
+        use_note = st.checkbox("Update note", key=f"patch_burn_case_use_note_{selected_case_id}")
+        patch_note = st.text_area(
+            "Note",
+            value=str(selected.get("note") or ""),
+            key=f"patch_burn_case_note_{selected_case_id}",
+        )
+
+        use_special_forces = st.checkbox(
+            "Update special forces",
+            key=f"patch_burn_case_use_special_forces_{selected_case_id}",
+        )
         patch_special_forces = st.selectbox(
             "Special forces",
-            options=[no_change, None, *ALLOWED_SPECIAL_FORCES],
-            format_func=lambda value: "No change" if value == no_change else ("Not set" if value is None else value),
-            key="patch_burn_case_special_forces",
+            options=special_forces_options,
+            format_func=lambda value: "Not set" if value is None else value,
+            index=special_forces_options.index(selected.get("special_forces"))
+            if selected.get("special_forces") in special_forces_options
+            else 0,
+            key=f"patch_burn_case_special_forces_{selected_case_id}",
         )
         submitted = st.form_submit_button("Apply patch", width="stretch")
 
         if submitted:
             payload: dict[str, Any] = {}
             try:
-                if patch_patient["id"] != no_change:
+                if use_patient:
                     payload["patient_id"] = int(patch_patient["id"])
-                if patch_tbsa_burned.strip():
+                if use_tbsa:
                     payload["TBSA_burned"] = parse_optional_float_input(patch_tbsa_burned)
-                if patch_admission_date.strip():
+                if use_admission_date:
                     payload["admission_date"] = parse_optional_date_input(patch_admission_date)
-                if patch_burn_date.strip():
+                if use_burn_date:
                     payload["burn_date"] = parse_optional_date_input(patch_burn_date)
-                if patch_release_date.strip():
+                if use_release_date:
                     payload["release_date"] = parse_optional_date_input(patch_release_date)
             except ValueError:
                 st.error("TBSA burned must be a valid number and dates must use YYYY-MM-DD format.")
                 return
 
-            if patch_admission_provenance["id"] != no_change:
+            if use_admission_provenance:
                 payload["admission_provenance"] = patch_admission_provenance["id"]
-            if patch_release_destination["id"] != no_change:
+            if use_release_destination:
                 payload["release_destination"] = patch_release_destination["id"]
-            if patch_burn_mecanism != no_change:
+            if use_burn_mecanism:
                 payload["burn_mecanism"] = patch_burn_mecanism
-            if patch_burn_etiology["id"] != no_change:
+            if use_burn_etiology:
                 payload["burn_etiology"] = patch_burn_etiology["id"]
-            if patch_violence_related != no_change:
+            if use_inhalation_injury:
+                payload["inhalation_injury"] = patch_inhalation_injury["id"]
+            if use_violence_related:
                 payload["violence_related"] = patch_violence_related
-            if patch_suicide_attempt != no_change:
+            if use_suicide_attempt:
                 payload["suicide_attempt"] = patch_suicide_attempt
-            if patch_accident_type != no_change:
+            if use_accident_type:
                 payload["accident_type"] = patch_accident_type
-            if patch_wildfire != no_change:
+            if use_wildfire:
                 payload["wildfire"] = patch_wildfire
-            if patch_bonfire_fogueira != no_change:
+            if use_bonfire:
                 payload["bonfire_fogueira"] = patch_bonfire_fogueira
-            if patch_fireplace_lareira != no_change:
+            if use_fireplace:
                 payload["fireplace_lareira"] = patch_fireplace_lareira
-            if patch_note.strip():
-                payload["note"] = patch_note.strip()
-            if patch_special_forces != no_change:
+            if use_note:
+                payload["note"] = optional_text(patch_note)
+            if use_special_forces:
                 payload["special_forces"] = patch_special_forces
+
+            if not payload:
+                st.warning("Select at least one field to patch.")
+                return
 
             status_code, data = request_json("PATCH", f"/burn-unit-cases/{selected['id']}", payload)
             show_api_result(status_code, data)
@@ -2316,6 +2501,7 @@ def render_burn_unit_case_crud_workspace(
     patients: list[dict[str, Any]],
     provenance_destinations: list[dict[str, Any]],
     burn_etiologies: list[dict[str, Any]],
+    inhalation_injuries: list[dict[str, Any]],
 ) -> None:
     """Render burn unit case CRUD operations in compact tabs."""
     patients_by_id = {int(row["id"]): row for row in patients if row.get("id") is not None}
@@ -2325,7 +2511,12 @@ def render_burn_unit_case_crud_workspace(
     op_tabs = st.tabs(["Create (POST)", "Read One (GET)", "Replace (PUT)", "Patch (PATCH)", "Delete (DELETE)"])
 
     with op_tabs[0]:
-        render_burn_unit_case_create_tab(patients, provenance_destinations, burn_etiologies)
+        render_burn_unit_case_create_tab(
+            patients,
+            provenance_destinations,
+            burn_etiologies,
+            inhalation_injuries,
+        )
     with op_tabs[1]:
         render_burn_unit_case_read_tab(burn_unit_cases, patients_by_id)
     with op_tabs[2]:
@@ -2334,6 +2525,7 @@ def render_burn_unit_case_crud_workspace(
             patients,
             provenance_destinations,
             burn_etiologies,
+            inhalation_injuries,
             patients_by_id,
         )
     with op_tabs[3]:
@@ -2342,6 +2534,7 @@ def render_burn_unit_case_crud_workspace(
             patients,
             provenance_destinations,
             burn_etiologies,
+            inhalation_injuries,
             patients_by_id,
         )
     with op_tabs[4]:
@@ -2360,6 +2553,7 @@ def burn_unit_cases_tab() -> None:
         patients = load_patients()
         provenance_destinations = load_provenance_destinations()
         burn_etiologies = load_burn_etiologies()
+        inhalation_injuries = load_inhalation_injuries()
     except RuntimeError as exc:
         st.error(str(exc))
         return
@@ -2369,12 +2563,14 @@ def burn_unit_cases_tab() -> None:
         patients,
         provenance_destinations,
         burn_etiologies,
+        inhalation_injuries,
     )
     render_burn_unit_case_crud_workspace(
         burn_unit_cases,
         patients,
         provenance_destinations,
         burn_etiologies,
+        inhalation_injuries,
     )
 
 

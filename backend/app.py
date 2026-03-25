@@ -303,6 +303,18 @@ class BurnEtiologyRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class InhalationInjuryRead(BaseModel):
+    """Response model representing an inhalation injury lookup row."""
+
+    id: int
+    name: str | None = None
+    description: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class BurnUnitCaseCreate(BaseModel):
     """Payload used for creating a burn unit case row."""
 
@@ -316,6 +328,7 @@ class BurnUnitCaseCreate(BaseModel):
     release_destination: int | None = None
     burn_mecanism: str | None = None
     burn_etiology: int | None = None
+    inhalation_injury: int | None = None
     violence_related: bool | None = None
     suicide_attempt: bool | None = None
     accident_type: str | None = None
@@ -338,6 +351,7 @@ class BurnUnitCaseWrite(BaseModel):
     release_destination: int | None = None
     burn_mecanism: str | None = None
     burn_etiology: int | None = None
+    inhalation_injury: int | None = None
     violence_related: bool | None = None
     suicide_attempt: bool | None = None
     accident_type: str | None = None
@@ -360,6 +374,7 @@ class BurnUnitCasePatch(BaseModel):
     release_destination: int | None = None
     burn_mecanism: str | None = None
     burn_etiology: int | None = None
+    inhalation_injury: int | None = None
     violence_related: bool | None = None
     suicide_attempt: bool | None = None
     accident_type: str | None = None
@@ -383,6 +398,7 @@ class BurnUnitCaseRead(BaseModel):
     release_destination: int | None = None
     burn_mecanism: str | None = None
     burn_etiology: int | None = None
+    inhalation_injury: int | None = None
     violence_related: bool | None = None
     suicide_attempt: bool | None = None
     accident_type: str | None = None
@@ -1085,6 +1101,17 @@ def get_burn_etiology_or_404(connection: sqlite3.Connection, burn_etiology_id: i
     return dict(row)
 
 
+def get_inhalation_injury_or_404(connection: sqlite3.Connection, inhalation_injury_id: int) -> dict[str, Any]:
+    """Fetch an inhalation injury lookup row by id or raise 404 if not found."""
+    row = connection.execute(
+        "SELECT * FROM inhalation_injury WHERE id = ?",
+        (inhalation_injury_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Inhalation injury not found")
+    return dict(row)
+
+
 def get_burn_unit_case_or_404(connection: sqlite3.Connection, burn_unit_case_id: int) -> dict[str, Any]:
     """Fetch a burn unit case row by id or raise 404 if not found."""
     row = connection.execute(
@@ -1315,6 +1342,7 @@ def fetch_all_rows(table_name: str) -> list[dict[str, Any]]:
         "medications",
         "provenance_destination",
         "burn_etiology",
+        "inhalation_injury",
         "burn_unit_cases",
         "infections",
         "microbiology_specimens",
@@ -1345,7 +1373,8 @@ def read_root() -> dict[str, str]:
         "message": "Burn Unit Database API is running.",
         "endpoints": (
             "/patients, /addresses, /pathologies, /patient-pathologies, /medications, "
-            "/patient-medications, /provenance-destinations, /burn-etiologies, /burn-unit-cases, "
+            "/patient-medications, /provenance-destinations, /burn-etiologies, /inhalation-injuries, "
+            "/burn-unit-cases, "
             "/infections, /antibiotics, /microbiology-specimens, /microbiology-agents, /case-microbiology, "
             "/medical-procedures, /case-procedures, /surgical-interventions, "
             "/case-surgical-interventions, /complications, /case-complications"
@@ -2522,6 +2551,23 @@ def delete_burn_etiology(burn_etiology_id: int) -> dict[str, str]:
     return {"message": f"Burn etiology {burn_etiology_id} deleted"}
 
 
+@app.get("/inhalation-injuries", tags=["inhalation_injuries"])
+def get_inhalation_injuries() -> list[dict[str, Any]]:
+    """Return every inhalation injury lookup row from the inhalation_injury table."""
+    return fetch_all_rows("inhalation_injury")
+
+
+@app.get(
+    "/inhalation-injuries/{inhalation_injury_id}",
+    tags=["inhalation_injuries"],
+    response_model=InhalationInjuryRead,
+)
+def get_inhalation_injury(inhalation_injury_id: int) -> dict[str, Any]:
+    """Return one inhalation injury lookup row by id."""
+    with get_connection() as connection:
+        return get_inhalation_injury_or_404(connection, inhalation_injury_id)
+
+
 @app.get("/burn-unit-cases", tags=["burn_unit_cases"])
 def get_burn_unit_cases() -> list[dict[str, Any]]:
     """Return every burn unit case row from the burn_unit_cases table."""
@@ -2553,6 +2599,7 @@ def create_burn_unit_case(payload: BurnUnitCaseCreate) -> dict[str, Any]:
                     release_destination,
                     burn_mecanism,
                     burn_etiology,
+                    inhalation_injury,
                     violence_related,
                     suicide_attempt,
                     accident_type,
@@ -2562,7 +2609,7 @@ def create_burn_unit_case(payload: BurnUnitCaseCreate) -> dict[str, Any]:
                     note,
                     special_forces
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload.id,
@@ -2575,6 +2622,7 @@ def create_burn_unit_case(payload: BurnUnitCaseCreate) -> dict[str, Any]:
                     payload.release_destination,
                     payload.burn_mecanism,
                     payload.burn_etiology,
+                    payload.inhalation_injury,
                     payload.violence_related,
                     payload.suicide_attempt,
                     payload.accident_type,
@@ -2615,6 +2663,7 @@ def update_burn_unit_case(burn_unit_case_id: int, payload: BurnUnitCaseWrite) ->
                     release_destination = ?,
                     burn_mecanism = ?,
                     burn_etiology = ?,
+                    inhalation_injury = ?,
                     violence_related = ?,
                     suicide_attempt = ?,
                     accident_type = ?,
@@ -2636,6 +2685,7 @@ def update_burn_unit_case(burn_unit_case_id: int, payload: BurnUnitCaseWrite) ->
                     payload.release_destination,
                     payload.burn_mecanism,
                     payload.burn_etiology,
+                    payload.inhalation_injury,
                     payload.violence_related,
                     payload.suicide_attempt,
                     payload.accident_type,
@@ -2676,6 +2726,7 @@ def patch_burn_unit_case(burn_unit_case_id: int, payload: BurnUnitCasePatch) -> 
         "release_destination",
         "burn_mecanism",
         "burn_etiology",
+        "inhalation_injury",
         "violence_related",
         "suicide_attempt",
         "accident_type",

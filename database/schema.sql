@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS burn_unit_cases (
     release_destination INTEGER,  --  foreign key to table provenance_destination (e.g., home, rehabilitation)
     burn_mecanism TEXT CHECK (burn_mecanism IN ('heat', 'electrical_discharge', 'friction','chemical','radiaton','other')),  -- Me chanism of burn injury 
     burn_etiology INTEGER,  --foreign key to table burn etiology
+    inhalation_injury INTEGER,  -- foreign key to table inhalation_injury
     violence_related BOOLEAN,  -- Whether the burn injury is related to violence
     suicide_attempt BOOLEAN,  -- Whether the burn injury is related
     accident_type TEXT CHECK (accident_type IN ('workplace', 'domestic', 'traffic', 'war', 'terrorism', 'other')),  -- Type of accident (e.g., workplace, domestic, etc.)
@@ -96,9 +97,18 @@ CREATE TABLE IF NOT EXISTS burn_unit_cases (
     FOREIGN KEY (admission_provenance) REFERENCES provenance_destination(id),
     FOREIGN KEY (release_destination) REFERENCES provenance_destination(id),
     FOREIGN KEY (patient_id) REFERENCES patients(id),
-    FOREIGN KEY (burn_etiology) REFERENCES burn_etiology(id)
+    FOREIGN KEY (burn_etiology) REFERENCES burn_etiology(id),
+    FOREIGN KEY (inhalation_injury) REFERENCES inhalation_injury(id)
 );
 
+-- Table: inhalation_injury
+CREATE TABLE IF NOT EXISTS inhalation_injury (
+    id INTEGER PRIMARY KEY, -- AIS score 0 to 4
+    name TEXT,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 -- Table: provenance_destination
 CREATE TABLE IF NOT EXISTS provenance_destination (
     id INTEGER PRIMARY KEY,
