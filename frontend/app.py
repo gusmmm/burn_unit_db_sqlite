@@ -3381,6 +3381,7 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
             with st.form("edit_case_procedure_form"):
                 assoc_options = [
                     {
+                        "id": row["id"],
                         "case_id": row["case_id"],
                         "procedure_id": row["procedure_id"],
                         "date_started": row.get("date_started") or "",
@@ -3388,7 +3389,7 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
                         "before_admission": bool(row.get("before_admission")),
                         "note": row.get("note") or "",
                         "label": (
-                            f"{row['case_id']} / {row['procedure_id']} - "
+                            f"#{row['id']} | {row['case_id']} / {row['procedure_id']} - "
                             f"{procedures_by_id.get(row['procedure_id'], {}).get('name', 'Unknown procedure')}"
                         ),
                     }
@@ -3444,7 +3445,7 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
                         }
                         status_code, data = request_json(
                             "PATCH",
-                            f"/case-procedures/{selected_assoc['case_id']}/{selected_assoc['procedure_id']}",
+                            f"/case-procedures/{selected_assoc['id']}",
                             payload,
                         )
                         show_api_result(status_code, data)
@@ -3457,10 +3458,11 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
             with st.form("delete_case_procedure_form"):
                 assoc_options = [
                     {
+                        "id": row["id"],
                         "case_id": row["case_id"],
                         "procedure_id": row["procedure_id"],
                         "label": (
-                            f"{row['case_id']} / {row['procedure_id']} - "
+                            f"#{row['id']} | {row['case_id']} / {row['procedure_id']} - "
                             f"{procedures_by_id.get(row['procedure_id'], {}).get('name', 'Unknown procedure')}"
                         ),
                     }
@@ -3476,7 +3478,7 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
                 if st.form_submit_button("Delete Case Procedure", type="primary"):
                     status_code, data = request_json(
                         "DELETE",
-                        f"/case-procedures/{selected_assoc['case_id']}/{selected_assoc['procedure_id']}",
+                        f"/case-procedures/{selected_assoc['id']}",
                     )
                     show_api_result(status_code, data)
                     if 200 <= status_code < 300:
@@ -3568,13 +3570,14 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
             with st.form("edit_case_surgical_intervention_form"):
                 assoc_options = [
                     {
+                        "id": row["id"],
                         "case_id": row["case_id"],
                         "intervention_id": row["intervention_id"],
                         "date_started": row.get("date_started") or "",
                         "date_stopped": row.get("date_stopped") or "",
                         "note": row.get("note") or "",
                         "label": (
-                            f"{row['case_id']} / {row['intervention_id']} - "
+                            f"#{row['id']} | {row['case_id']} / {row['intervention_id']} - "
                             f"{interventions_by_id.get(row['intervention_id'], {}).get('name', 'Unknown intervention')}"
                         ),
                     }
@@ -3625,10 +3628,7 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
                         }
                         status_code, data = request_json(
                             "PATCH",
-                            (
-                                f"/case-surgical-interventions/"
-                                f"{selected_assoc['case_id']}/{selected_assoc['intervention_id']}"
-                            ),
+                            f"/case-surgical-interventions/{selected_assoc['id']}",
                             payload,
                         )
                         show_api_result(status_code, data)
@@ -3641,10 +3641,11 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
             with st.form("delete_case_surgical_intervention_form"):
                 assoc_options = [
                     {
+                        "id": row["id"],
                         "case_id": row["case_id"],
                         "intervention_id": row["intervention_id"],
                         "label": (
-                            f"{row['case_id']} / {row['intervention_id']} - "
+                            f"#{row['id']} | {row['case_id']} / {row['intervention_id']} - "
                             f"{interventions_by_id.get(row['intervention_id'], {}).get('name', 'Unknown intervention')}"
                         ),
                     }
@@ -3660,10 +3661,7 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
                 if st.form_submit_button("Delete Case Surgical Intervention", type="primary"):
                     status_code, data = request_json(
                         "DELETE",
-                        (
-                            f"/case-surgical-interventions/"
-                            f"{selected_assoc['case_id']}/{selected_assoc['intervention_id']}"
-                        ),
+                        f"/case-surgical-interventions/{selected_assoc['id']}",
                     )
                     show_api_result(status_code, data)
                     if 200 <= status_code < 300:

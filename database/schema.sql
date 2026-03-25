@@ -260,6 +260,7 @@ CREATE TABLE IF NOT EXISTS medical_procedures (
 );
 -- Table: case_procedures
 CREATE TABLE IF NOT EXISTS case_procedures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     case_id INTEGER NOT NULL,
     procedure_id INTEGER NOT NULL,
     date_started DATE,
@@ -268,7 +269,6 @@ CREATE TABLE IF NOT EXISTS case_procedures (
     note TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (case_id, procedure_id),
     FOREIGN KEY (case_id) REFERENCES burn_unit_cases(id),
     FOREIGN KEY (procedure_id) REFERENCES medical_procedures(id)
 );
@@ -285,6 +285,7 @@ CREATE TABLE IF NOT EXISTS surgical_interventions (
 );
 -- Table: case_surgical_interventions
 CREATE TABLE IF NOT EXISTS case_surgical_interventions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     case_id INTEGER NOT NULL,
     intervention_id INTEGER NOT NULL,
     date_started DATE,
@@ -292,7 +293,6 @@ CREATE TABLE IF NOT EXISTS case_surgical_interventions (
     note TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (case_id, intervention_id),
     FOREIGN KEY (case_id) REFERENCES burn_unit_cases(id),
     FOREIGN KEY (intervention_id) REFERENCES surgical_interventions(id)
 );

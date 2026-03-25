@@ -777,6 +777,7 @@ class CaseProcedurePatch(BaseModel):
 class CaseProcedureRead(BaseModel):
     """Response model representing a case_procedures association row."""
 
+    id: int
     case_id: int
     procedure_id: int
     date_started: str | None = None
@@ -849,6 +850,7 @@ class CaseSurgicalInterventionPatch(BaseModel):
 class CaseSurgicalInterventionRead(BaseModel):
     """Response model representing a case_surgical_interventions association row."""
 
+    id: int
     case_id: int
     intervention_id: int
     date_started: str | None = None
@@ -1222,17 +1224,16 @@ def get_medical_procedure_or_404(
 
 def get_case_procedure_or_404(
     connection: sqlite3.Connection,
-    case_id: int,
-    procedure_id: int,
+    case_procedure_id: int,
 ) -> dict[str, Any]:
-    """Fetch a case_procedures association row by composite key or raise 404 if not found."""
+    """Fetch a case_procedures association row by id or raise 404 if not found."""
     row = connection.execute(
         """
         SELECT *
         FROM case_procedures
-        WHERE case_id = ? AND procedure_id = ?
+        WHERE id = ?
         """,
-        (case_id, procedure_id),
+        (case_procedure_id,),
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Case procedure association not found")
@@ -1255,17 +1256,16 @@ def get_surgical_intervention_or_404(
 
 def get_case_surgical_intervention_or_404(
     connection: sqlite3.Connection,
-    case_id: int,
-    intervention_id: int,
+    case_surgical_intervention_id: int,
 ) -> dict[str, Any]:
-    """Fetch a case_surgical_interventions association row by composite key or raise 404 if not found."""
+    """Fetch a case_surgical_interventions association row by id or raise 404 if not found."""
     row = connection.execute(
         """
         SELECT *
         FROM case_surgical_interventions
-        WHERE case_id = ? AND intervention_id = ?
+        WHERE id = ?
         """,
-        (case_id, intervention_id),
+        (case_surgical_intervention_id,),
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Case surgical intervention association not found")
@@ -4016,26 +4016,26 @@ def get_case_procedures(case_id: int | None = None) -> list[dict[str, Any]]:
                 SELECT *
                 FROM case_procedures
                 WHERE case_id = ?
-                ORDER BY case_id, procedure_id
+                ORDER BY case_id, id
                 """,
                 (case_id,),
             ).fetchall()
         else:
             rows = connection.execute(
-                "SELECT * FROM case_procedures ORDER BY case_id, procedure_id"
+                "SELECT * FROM case_procedures ORDER BY case_id, id"
             ).fetchall()
     return [dict(row) for row in rows]
 
 
 @app.get(
-    "/case-procedures/{case_id}/{procedure_id}",
+    "/case-procedures/{case_procedure_id}",
     tags=["case_procedures"],
     response_model=CaseProcedureRead,
 )
-def get_case_procedure(case_id: int, procedure_id: int) -> dict[str, Any]:
-    """Return one case_procedures association by composite key."""
+def get_case_procedure(case_procedure_id: int) -> dict[str, Any]:
+    """Return one case_procedures association by id."""
     with get_connection() as connection:
-        return get_case_procedure_or_404(connection, case_id, procedure_id)
+        return get_case_procedure_or_404(connection, case_procedure_id)
 
 
 @app.post(
@@ -4048,7 +4048,7 @@ def create_case_procedure(payload: CaseProcedureCreate) -> dict[str, Any]:
     """Create a case_procedures association and return the inserted row."""
     try:
         with get_connection() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO case_procedures (
                     case_id,
@@ -4069,13 +4069,14 @@ def create_case_procedure(payload: CaseProcedureCreate) -> dict[str, Any]:
                     payload.note,
                 ),
             )
+            case_procedure_id = cursor.lastrowid
             row = connection.execute(
                 """
                 SELECT *
                 FROM case_procedures
-                WHERE case_id = ? AND procedure_id = ?
+                WHERE id = ?
                 """,
-                (payload.case_id, payload.procedure_id),
+                (case_procedure_id,),
             ).fetchone()
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid case_procedures data: {exc}") from exc
@@ -4086,16 +4087,15 @@ def create_case_procedure(payload: CaseProcedureCreate) -> dict[str, Any]:
 
 
 @app.patch(
-    "/case-procedures/{case_id}/{procedure_id}",
+    "/case-procedures/{case_procedure_id}",
     tags=["case_procedures"],
     response_model=CaseProcedureRead,
 )
 def patch_case_procedure(
-    case_id: int,
-    procedure_id: int,
+    case_procedure_id: int,
     payload: CaseProcedurePatch,
 ) -> dict[str, Any]:
-    """Partially update a case_procedures association row by composite key."""
+    """Partially update a case_procedures association row by id."""
     updates = payload.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields provided to update")
@@ -4120,23 +4120,20 @@ def patch_case_procedure(
         raise HTTPException(status_code=400, detail="No valid fields provided to update")
 
     assignments.append("updated_at = CURRENT_TIMESTAMP")
-    values.extend([case_id, procedure_id])
-    query = f"UPDATE case_procedures SET {', '.join(assignments)} WHERE case_id = ? AND procedure_id = ?"
-
-    new_case_id = updates.get("case_id", case_id)
-    new_procedure_id = updates.get("procedure_id", procedure_id)
+    values.append(case_procedure_id)
+    query = f"UPDATE case_procedures SET {', '.join(assignments)} WHERE id = ?"
 
     try:
         with get_connection() as connection:
-            get_case_procedure_or_404(connection, case_id, procedure_id)
+            get_case_procedure_or_404(connection, case_procedure_id)
             connection.execute(query, values)
             row = connection.execute(
                 """
                 SELECT *
                 FROM case_procedures
-                WHERE case_id = ? AND procedure_id = ?
+                WHERE id = ?
                 """,
-                (new_case_id, new_procedure_id),
+                (case_procedure_id,),
             ).fetchone()
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid case_procedures data: {exc}") from exc
@@ -4146,17 +4143,17 @@ def patch_case_procedure(
     return dict(row)
 
 
-@app.delete("/case-procedures/{case_id}/{procedure_id}", tags=["case_procedures"])
-def delete_case_procedure(case_id: int, procedure_id: int) -> dict[str, str]:
-    """Delete one case_procedures association row by composite key."""
+@app.delete("/case-procedures/{case_procedure_id}", tags=["case_procedures"])
+def delete_case_procedure(case_procedure_id: int) -> dict[str, str]:
+    """Delete one case_procedures association row by id."""
     with get_connection() as connection:
-        get_case_procedure_or_404(connection, case_id, procedure_id)
+        get_case_procedure_or_404(connection, case_procedure_id)
         connection.execute(
-            "DELETE FROM case_procedures WHERE case_id = ? AND procedure_id = ?",
-            (case_id, procedure_id),
+            "DELETE FROM case_procedures WHERE id = ?",
+            (case_procedure_id,),
         )
 
-    return {"message": f"Association ({case_id}, {procedure_id}) deleted"}
+    return {"message": f"Case procedure association {case_procedure_id} deleted"}
 
 
 @app.get(
@@ -4331,26 +4328,26 @@ def get_case_surgical_interventions(case_id: int | None = None) -> list[dict[str
                 SELECT *
                 FROM case_surgical_interventions
                 WHERE case_id = ?
-                ORDER BY case_id, intervention_id
+                ORDER BY case_id, id
                 """,
                 (case_id,),
             ).fetchall()
         else:
             rows = connection.execute(
-                "SELECT * FROM case_surgical_interventions ORDER BY case_id, intervention_id"
+                "SELECT * FROM case_surgical_interventions ORDER BY case_id, id"
             ).fetchall()
     return [dict(row) for row in rows]
 
 
 @app.get(
-    "/case-surgical-interventions/{case_id}/{intervention_id}",
+    "/case-surgical-interventions/{case_surgical_intervention_id}",
     tags=["case_surgical_interventions"],
     response_model=CaseSurgicalInterventionRead,
 )
-def get_case_surgical_intervention(case_id: int, intervention_id: int) -> dict[str, Any]:
-    """Return one case_surgical_interventions association by composite key."""
+def get_case_surgical_intervention(case_surgical_intervention_id: int) -> dict[str, Any]:
+    """Return one case_surgical_interventions association by id."""
     with get_connection() as connection:
-        return get_case_surgical_intervention_or_404(connection, case_id, intervention_id)
+        return get_case_surgical_intervention_or_404(connection, case_surgical_intervention_id)
 
 
 @app.post(
@@ -4363,7 +4360,7 @@ def create_case_surgical_intervention(payload: CaseSurgicalInterventionCreate) -
     """Create a case_surgical_interventions association and return the inserted row."""
     try:
         with get_connection() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO case_surgical_interventions (
                     case_id,
@@ -4382,13 +4379,14 @@ def create_case_surgical_intervention(payload: CaseSurgicalInterventionCreate) -
                     payload.note,
                 ),
             )
+            case_surgical_intervention_id = cursor.lastrowid
             row = connection.execute(
                 """
                 SELECT *
                 FROM case_surgical_interventions
-                WHERE case_id = ? AND intervention_id = ?
+                WHERE id = ?
                 """,
-                (payload.case_id, payload.intervention_id),
+                (case_surgical_intervention_id,),
             ).fetchone()
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid case_surgical_interventions data: {exc}") from exc
@@ -4399,16 +4397,15 @@ def create_case_surgical_intervention(payload: CaseSurgicalInterventionCreate) -
 
 
 @app.patch(
-    "/case-surgical-interventions/{case_id}/{intervention_id}",
+    "/case-surgical-interventions/{case_surgical_intervention_id}",
     tags=["case_surgical_interventions"],
     response_model=CaseSurgicalInterventionRead,
 )
 def patch_case_surgical_intervention(
-    case_id: int,
-    intervention_id: int,
+    case_surgical_intervention_id: int,
     payload: CaseSurgicalInterventionPatch,
 ) -> dict[str, Any]:
-    """Partially update a case_surgical_interventions association row by composite key."""
+    """Partially update a case_surgical_interventions association row by id."""
     updates = payload.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields provided to update")
@@ -4432,26 +4429,20 @@ def patch_case_surgical_intervention(
         raise HTTPException(status_code=400, detail="No valid fields provided to update")
 
     assignments.append("updated_at = CURRENT_TIMESTAMP")
-    values.extend([case_id, intervention_id])
-    query = (
-        f"UPDATE case_surgical_interventions SET {', '.join(assignments)} "
-        "WHERE case_id = ? AND intervention_id = ?"
-    )
-
-    new_case_id = updates.get("case_id", case_id)
-    new_intervention_id = updates.get("intervention_id", intervention_id)
+    values.append(case_surgical_intervention_id)
+    query = f"UPDATE case_surgical_interventions SET {', '.join(assignments)} WHERE id = ?"
 
     try:
         with get_connection() as connection:
-            get_case_surgical_intervention_or_404(connection, case_id, intervention_id)
+            get_case_surgical_intervention_or_404(connection, case_surgical_intervention_id)
             connection.execute(query, values)
             row = connection.execute(
                 """
                 SELECT *
                 FROM case_surgical_interventions
-                WHERE case_id = ? AND intervention_id = ?
+                WHERE id = ?
                 """,
-                (new_case_id, new_intervention_id),
+                (case_surgical_intervention_id,),
             ).fetchone()
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid case_surgical_interventions data: {exc}") from exc
@@ -4462,19 +4453,19 @@ def patch_case_surgical_intervention(
 
 
 @app.delete(
-    "/case-surgical-interventions/{case_id}/{intervention_id}",
+    "/case-surgical-interventions/{case_surgical_intervention_id}",
     tags=["case_surgical_interventions"],
 )
-def delete_case_surgical_intervention(case_id: int, intervention_id: int) -> dict[str, str]:
-    """Delete one case_surgical_interventions association row by composite key."""
+def delete_case_surgical_intervention(case_surgical_intervention_id: int) -> dict[str, str]:
+    """Delete one case_surgical_interventions association row by id."""
     with get_connection() as connection:
-        get_case_surgical_intervention_or_404(connection, case_id, intervention_id)
+        get_case_surgical_intervention_or_404(connection, case_surgical_intervention_id)
         connection.execute(
-            "DELETE FROM case_surgical_interventions WHERE case_id = ? AND intervention_id = ?",
-            (case_id, intervention_id),
+            "DELETE FROM case_surgical_interventions WHERE id = ?",
+            (case_surgical_intervention_id,),
         )
 
-    return {"message": f"Association ({case_id}, {intervention_id}) deleted"}
+    return {"message": f"Case surgical intervention association {case_surgical_intervention_id} deleted"}
 
 
 @app.get("/complications", tags=["complications"], response_model=list[ComplicationRead])
