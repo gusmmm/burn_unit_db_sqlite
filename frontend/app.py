@@ -774,20 +774,38 @@ def render_pathologies_overview(pathologies: list[dict[str, Any]]) -> None:
 
 def render_pathology_create_tab() -> None:
     """Render create pathology operation."""
-    with st.form("create_pathology_form"):
-        pathology_id = st.number_input("Pathology ID", min_value=1, step=1, format="%d")
+    with st.form("create_pathology_form", clear_on_submit=True):
+        pathology_id = st.text_input("Pathology ID", placeholder="Required integer")
         name = st.text_input("Name", placeholder="Pathology preferred term")
         fsn = st.text_input("FSN", placeholder="Fully specified name")
         semantic_tag = st.text_input("Semantic tag", placeholder="e.g. disorder")
         definition = st.text_area("Definition", placeholder="Clinical description")
         icd11_code = st.text_input("ICD-11 code", placeholder="Optional ICD-11 code")
         mesh_id = st.text_input("MeSH ID", placeholder="Optional MeSH id")
-        status = st.selectbox("Status", options=ALLOWED_PATHOLOGY_STATUSES)
+        status = st.selectbox(
+            "Status",
+            options=ALLOWED_PATHOLOGY_STATUSES,
+            index=None,
+            placeholder="Select status",
+        )
         submitted = st.form_submit_button("Create pathology", width="stretch")
 
         if submitted:
+            if not pathology_id.strip():
+                st.error("Pathology ID is required.")
+                return
+            if status is None:
+                st.error("Status is required.")
+                return
+
+            try:
+                pathology_id_value = int(pathology_id.strip())
+            except ValueError:
+                st.error("Pathology ID must be a valid integer.")
+                return
+
             payload = {
-                "id": int(pathology_id),
+                "id": pathology_id_value,
                 "name": name.strip(),
                 "fsn": optional_text(fsn),
                 "semantic_tag": optional_text(semantic_tag),
@@ -877,43 +895,58 @@ def render_pathology_patch_tab(pathologies: list[dict[str, Any]]) -> None:
         format_func=pathology_label,
         key="patch_pathology_select",
     )
+    selected_pathology_id = int(selected["id"])
 
     with st.form("patch_pathology_form"):
-        use_name = st.checkbox("Update name", key="patch_pathology_use_name")
-        patch_name = st.text_input("Name", value=str(selected.get("name", "")), key="patch_pathology_name")
+        use_name = st.checkbox("Update name", key=f"patch_pathology_use_name_{selected_pathology_id}")
+        patch_name = st.text_input(
+            "Name",
+            value=str(selected.get("name", "")),
+            key=f"patch_pathology_name_{selected_pathology_id}",
+        )
 
-        use_fsn = st.checkbox("Update FSN", key="patch_pathology_use_fsn")
-        patch_fsn = st.text_input("FSN", value=str(selected.get("fsn") or ""), key="patch_pathology_fsn")
+        use_fsn = st.checkbox("Update FSN", key=f"patch_pathology_use_fsn_{selected_pathology_id}")
+        patch_fsn = st.text_input(
+            "FSN",
+            value=str(selected.get("fsn") or ""),
+            key=f"patch_pathology_fsn_{selected_pathology_id}",
+        )
 
-        use_semantic_tag = st.checkbox("Update semantic tag", key="patch_pathology_use_semantic_tag")
+        use_semantic_tag = st.checkbox(
+            "Update semantic tag",
+            key=f"patch_pathology_use_semantic_tag_{selected_pathology_id}",
+        )
         patch_semantic_tag = st.text_input(
             "Semantic tag",
             value=str(selected.get("semantic_tag") or ""),
-            key="patch_pathology_semantic_tag",
+            key=f"patch_pathology_semantic_tag_{selected_pathology_id}",
         )
 
-        use_definition = st.checkbox("Update definition", key="patch_pathology_use_definition")
+        use_definition = st.checkbox(
+            "Update definition",
+            key=f"patch_pathology_use_definition_{selected_pathology_id}",
+        )
         patch_definition = st.text_area(
             "Definition",
             value=str(selected.get("definition") or ""),
-            key="patch_pathology_definition",
+            key=f"patch_pathology_definition_{selected_pathology_id}",
         )
 
-        use_icd11 = st.checkbox("Update ICD-11 code", key="patch_pathology_use_icd11")
+        use_icd11 = st.checkbox("Update ICD-11 code", key=f"patch_pathology_use_icd11_{selected_pathology_id}")
         patch_icd11_code = st.text_input(
             "ICD-11 code",
             value=str(selected.get("icd11_code") or ""),
-            key="patch_pathology_icd11_code",
+            key=f"patch_pathology_icd11_code_{selected_pathology_id}",
         )
 
-        use_mesh = st.checkbox("Update MeSH ID", key="patch_pathology_use_mesh")
+        use_mesh = st.checkbox("Update MeSH ID", key=f"patch_pathology_use_mesh_{selected_pathology_id}")
         patch_mesh_id = st.text_input(
             "MeSH ID",
             value=str(selected.get("mesh_id") or ""),
-            key="patch_pathology_mesh_id",
+            key=f"patch_pathology_mesh_id_{selected_pathology_id}",
         )
 
-        use_status = st.checkbox("Update status", key="patch_pathology_use_status")
+        use_status = st.checkbox("Update status", key=f"patch_pathology_use_status_{selected_pathology_id}")
         current_status = selected.get("status")
         patch_status = st.selectbox(
             "Status",
@@ -921,7 +954,7 @@ def render_pathology_patch_tab(pathologies: list[dict[str, Any]]) -> None:
             index=ALLOWED_PATHOLOGY_STATUSES.index(current_status)
             if current_status in ALLOWED_PATHOLOGY_STATUSES
             else 0,
-            key="patch_pathology_status",
+            key=f"patch_pathology_status_{selected_pathology_id}",
         )
 
         submitted = st.form_submit_button("Apply patch", width="stretch")
@@ -1106,23 +1139,31 @@ def render_medication_patch_tab(medications: list[dict[str, Any]]) -> None:
         format_func=medication_label,
         key="patch_medication_select",
     )
+    selected_medication_id = int(selected["id"])
 
     with st.form("patch_medication_form"):
-        use_name = st.checkbox("Update name", key="patch_medication_use_name")
-        patch_name = st.text_input("Name", value=str(selected.get("name", "")), key="patch_medication_name")
+        use_name = st.checkbox("Update name", key=f"patch_medication_use_name_{selected_medication_id}")
+        patch_name = st.text_input(
+            "Name",
+            value=str(selected.get("name", "")),
+            key=f"patch_medication_name_{selected_medication_id}",
+        )
 
-        use_atc_code = st.checkbox("Update ATC code", key="patch_medication_use_atc_code")
+        use_atc_code = st.checkbox("Update ATC code", key=f"patch_medication_use_atc_code_{selected_medication_id}")
         patch_atc_code = st.text_input(
             "ATC code",
             value=str(selected.get("atc_code") or ""),
-            key="patch_medication_atc_code",
+            key=f"patch_medication_atc_code_{selected_medication_id}",
         )
 
-        use_description = st.checkbox("Update description", key="patch_medication_use_description")
+        use_description = st.checkbox(
+            "Update description",
+            key=f"patch_medication_use_description_{selected_medication_id}",
+        )
         patch_description = st.text_area(
             "Description",
             value=str(selected.get("description") or ""),
-            key="patch_medication_description",
+            key=f"patch_medication_description_{selected_medication_id}",
         )
 
         submitted = st.form_submit_button("Apply patch", width="stretch")
@@ -1299,23 +1340,31 @@ def render_antibiotic_patch_tab(antibiotics: list[dict[str, Any]]) -> None:
         format_func=antibiotic_label,
         key="patch_antibiotic_select",
     )
+    selected_antibiotic_id = int(selected["id"])
 
     with st.form("patch_antibiotic_form"):
-        use_name = st.checkbox("Update name", key="patch_antibiotic_use_name")
-        patch_name = st.text_input("Name", value=str(selected.get("name", "")), key="patch_antibiotic_name")
+        use_name = st.checkbox("Update name", key=f"patch_antibiotic_use_name_{selected_antibiotic_id}")
+        patch_name = st.text_input(
+            "Name",
+            value=str(selected.get("name", "")),
+            key=f"patch_antibiotic_name_{selected_antibiotic_id}",
+        )
 
-        use_atc_code = st.checkbox("Update ATC code", key="patch_antibiotic_use_atc_code")
+        use_atc_code = st.checkbox("Update ATC code", key=f"patch_antibiotic_use_atc_code_{selected_antibiotic_id}")
         patch_atc_code = st.text_input(
             "ATC code",
             value=str(selected.get("atc_code") or ""),
-            key="patch_antibiotic_atc_code",
+            key=f"patch_antibiotic_atc_code_{selected_antibiotic_id}",
         )
 
-        use_description = st.checkbox("Update description", key="patch_antibiotic_use_description")
+        use_description = st.checkbox(
+            "Update description",
+            key=f"patch_antibiotic_use_description_{selected_antibiotic_id}",
+        )
         patch_description = st.text_area(
             "Description",
             value=str(selected.get("description") or ""),
-            key="patch_antibiotic_description",
+            key=f"patch_antibiotic_description_{selected_antibiotic_id}",
         )
 
         submitted = st.form_submit_button("Apply patch", width="stretch")
@@ -1530,31 +1579,41 @@ def render_provenance_destination_patch_tab(
         format_func=provenance_destination_label,
         key="patch_provenance_destination_select",
     )
+    selected_provenance_id = int(selected["id"])
 
     with st.form("patch_provenance_destination_form"):
-        use_name = st.checkbox("Update name", key="patch_provenance_destination_use_name")
+        use_name = st.checkbox(
+            "Update name",
+            key=f"patch_provenance_destination_use_name_{selected_provenance_id}",
+        )
         patch_name = st.text_input(
             "Name",
             value=str(selected.get("name", "")),
-            key="patch_provenance_destination_name",
+            key=f"patch_provenance_destination_name_{selected_provenance_id}",
         )
 
-        use_type = st.checkbox("Update type", key="patch_provenance_destination_use_type")
+        use_type = st.checkbox(
+            "Update type",
+            key=f"patch_provenance_destination_use_type_{selected_provenance_id}",
+        )
         patch_type = st.selectbox(
             "Type",
             options=type_options,
             index=type_options.index(selected.get("type")) if selected.get("type") in type_options else 0,
             format_func=lambda value: "No type" if value is None else value,
-            key="patch_provenance_destination_type",
+            key=f"patch_provenance_destination_type_{selected_provenance_id}",
         )
 
-        use_location = st.checkbox("Update location", key="patch_provenance_destination_use_location")
+        use_location = st.checkbox(
+            "Update location",
+            key=f"patch_provenance_destination_use_location_{selected_provenance_id}",
+        )
         patch_location = st.selectbox(
             "Location (municipio)",
             options=addr_opts,
             format_func=lambda x: x["label"],
             index=address_option_index(addr_opts, selected.get("location")),
-            key="patch_provenance_destination_location",
+            key=f"patch_provenance_destination_location_{selected_provenance_id}",
         )
 
         submitted = st.form_submit_button("Apply patch", width="stretch")
@@ -1737,16 +1796,24 @@ def render_burn_etiology_patch_tab(burn_etiologies: list[dict[str, Any]]) -> Non
         format_func=burn_etiology_label,
         key="patch_burn_etiology_select",
     )
+    selected_etiology_id = int(selected["id"])
 
     with st.form("patch_burn_etiology_form"):
-        use_name = st.checkbox("Update name", key="patch_burn_etiology_use_name")
-        patch_name = st.text_input("Name", value=str(selected.get("name", "")), key="patch_burn_etiology_name")
+        use_name = st.checkbox("Update name", key=f"patch_burn_etiology_use_name_{selected_etiology_id}")
+        patch_name = st.text_input(
+            "Name",
+            value=str(selected.get("name", "")),
+            key=f"patch_burn_etiology_name_{selected_etiology_id}",
+        )
 
-        use_description = st.checkbox("Update description", key="patch_burn_etiology_use_description")
+        use_description = st.checkbox(
+            "Update description",
+            key=f"patch_burn_etiology_use_description_{selected_etiology_id}",
+        )
         patch_description = st.text_area(
             "Description",
             value=str(selected.get("description") or ""),
-            key="patch_burn_etiology_description",
+            key=f"patch_burn_etiology_description_{selected_etiology_id}",
         )
 
         submitted = st.form_submit_button("Apply patch", width="stretch")
@@ -4474,17 +4541,22 @@ def render_patient_pathologies_section(
                 format_func=lambda row: patient_pathology_row_label(row, pathologies_by_id),
                 key="patient_overview_assoc_patch_select",
             )
+            selected_pathology_id = int(selected_row.get("pathology_id"))
 
             pathology_options = sorted(pathologies, key=lambda p: int(p.get("id", 0))) if pathologies else []
 
             with st.form("patient_overview_assoc_patch_form"):
-                use_pathology = st.checkbox("Update pathology", key="patient_overview_assoc_patch_use_pathology")
+                use_pathology = st.checkbox(
+                    "Update pathology",
+                    key=f"patient_overview_assoc_patch_use_pathology_{patient_id}_{selected_pathology_id}",
+                )
                 if pathology_options:
                     patch_pathology = st.selectbox(
                         "Pathology",
                         options=pathology_options,
                         format_func=pathology_label,
                         index=find_index_by_key(pathology_options, "id", selected_row.get("pathology_id")),
+                        key=f"patient_overview_assoc_patch_pathology_{patient_id}_{selected_pathology_id}",
                     )
                 else:
                     patch_pathology = None
@@ -4492,7 +4564,7 @@ def render_patient_pathologies_section(
 
                 use_diagnosed_date = st.checkbox(
                     "Update diagnosed date",
-                    key="patient_overview_assoc_patch_use_diagnosed_date",
+                    key=f"patient_overview_assoc_patch_use_diagnosed_date_{patient_id}_{selected_pathology_id}",
                 )
                 patch_diagnosed_date = date_text_with_picker(
                     "Diagnosed date (YYYY-MM-DD)",
@@ -4502,8 +4574,15 @@ def render_patient_pathologies_section(
                     sync_token=f"patient-{patient_id}-pathology-{selected_row.get('pathology_id')}",
                 )
 
-                use_severity = st.checkbox("Update severity", key="patient_overview_assoc_patch_use_severity")
-                patch_severity = st.text_input("Severity", value=str(selected_row.get("severity") or ""))
+                use_severity = st.checkbox(
+                    "Update severity",
+                    key=f"patient_overview_assoc_patch_use_severity_{patient_id}_{selected_pathology_id}",
+                )
+                patch_severity = st.text_input(
+                    "Severity",
+                    value=str(selected_row.get("severity") or ""),
+                    key=f"patient_overview_assoc_patch_severity_{patient_id}_{selected_pathology_id}",
+                )
 
                 submitted = st.form_submit_button("Apply edit", width="stretch")
 
@@ -4656,17 +4735,22 @@ def render_patient_medications_section(
                 format_func=lambda row: patient_medication_row_label(row, medications_by_id),
                 key="patient_overview_med_assoc_patch_select",
             )
+            selected_medication_id = int(selected_row.get("medication_id"))
 
             medication_options = sorted(medications, key=lambda m: int(m.get("id", 0))) if medications else []
 
             with st.form("patient_overview_med_assoc_patch_form"):
-                use_medication = st.checkbox("Update medication", key="patient_overview_med_assoc_patch_use_medication")
+                use_medication = st.checkbox(
+                    "Update medication",
+                    key=f"patient_overview_med_assoc_patch_use_medication_{patient_id}_{selected_medication_id}",
+                )
                 if medication_options:
                     patch_medication = st.selectbox(
                         "Medication",
                         options=medication_options,
                         format_func=medication_label,
                         index=find_index_by_key(medication_options, "id", selected_row.get("medication_id")),
+                        key=f"patient_overview_med_assoc_patch_medication_{patient_id}_{selected_medication_id}",
                     )
                 else:
                     patch_medication = None
@@ -4674,7 +4758,9 @@ def render_patient_medications_section(
 
                 use_prescribed_date = st.checkbox(
                     "Update prescribed date",
-                    key="patient_overview_med_assoc_patch_use_prescribed_date",
+                    key=(
+                        f"patient_overview_med_assoc_patch_use_prescribed_date_{patient_id}_{selected_medication_id}"
+                    ),
                 )
                 patch_prescribed_date = date_text_with_picker(
                     "Prescribed date (YYYY-MM-DD)",
@@ -4684,8 +4770,15 @@ def render_patient_medications_section(
                     sync_token=f"patient-{patient_id}-medication-{selected_row.get('medication_id')}",
                 )
 
-                use_dosage = st.checkbox("Update dosage", key="patient_overview_med_assoc_patch_use_dosage")
-                patch_dosage = st.text_input("Dosage", value=str(selected_row.get("dosage") or ""))
+                use_dosage = st.checkbox(
+                    "Update dosage",
+                    key=f"patient_overview_med_assoc_patch_use_dosage_{patient_id}_{selected_medication_id}",
+                )
+                patch_dosage = st.text_input(
+                    "Dosage",
+                    value=str(selected_row.get("dosage") or ""),
+                    key=f"patient_overview_med_assoc_patch_dosage_{patient_id}_{selected_medication_id}",
+                )
 
                 submitted = st.form_submit_button("Apply edit", width="stretch")
 
@@ -5127,27 +5220,34 @@ def render_microbiology_specimen_patch_tab(specimens: list[dict[str, Any]]) -> N
         format_func=microbiology_specimen_label,
         key="patch_microbiology_specimen_select",
     )
+    selected_specimen_id = int(selected["id"])
 
     with st.form("patch_microbiology_specimen_form"):
-        use_loinc_code = st.checkbox("Update LOINC code", key="patch_microbiology_specimen_use_loinc")
+        use_loinc_code = st.checkbox(
+            "Update LOINC code",
+            key=f"patch_microbiology_specimen_use_loinc_{selected_specimen_id}",
+        )
         patch_loinc_code = st.text_input(
             "LOINC code",
             value=str(selected.get("loinc_code") or ""),
-            key="patch_microbiology_specimen_loinc",
+            key=f"patch_microbiology_specimen_loinc_{selected_specimen_id}",
         )
 
-        use_specimen_type = st.checkbox("Update specimen type", key="patch_microbiology_specimen_use_type")
+        use_specimen_type = st.checkbox(
+            "Update specimen type",
+            key=f"patch_microbiology_specimen_use_type_{selected_specimen_id}",
+        )
         patch_specimen_type = st.text_input(
             "Specimen type",
             value=str(selected.get("specimen_type") or ""),
-            key="patch_microbiology_specimen_type",
+            key=f"patch_microbiology_specimen_type_{selected_specimen_id}",
         )
 
-        use_note = st.checkbox("Update note", key="patch_microbiology_specimen_use_note")
+        use_note = st.checkbox("Update note", key=f"patch_microbiology_specimen_use_note_{selected_specimen_id}")
         patch_note = st.text_area(
             "Note",
             value=str(selected.get("note") or ""),
-            key="patch_microbiology_specimen_note",
+            key=f"patch_microbiology_specimen_note_{selected_specimen_id}",
         )
 
         submitted = st.form_submit_button("Apply patch", width="stretch")
@@ -5324,27 +5424,34 @@ def render_microbiology_agent_patch_tab(agents: list[dict[str, Any]]) -> None:
         format_func=microbiology_agent_label,
         key="patch_microbiology_agent_select",
     )
+    selected_agent_id = int(selected["id"])
 
     with st.form("patch_microbiology_agent_form"):
-        use_snomed_code = st.checkbox("Update SNOMED-CT code", key="patch_microbiology_agent_use_code")
+        use_snomed_code = st.checkbox(
+            "Update SNOMED-CT code",
+            key=f"patch_microbiology_agent_use_code_{selected_agent_id}",
+        )
         patch_snomed_code = st.text_input(
             "SNOMED-CT code",
             value=str(selected.get("snomed_ct_code") or ""),
-            key="patch_microbiology_agent_code",
+            key=f"patch_microbiology_agent_code_{selected_agent_id}",
         )
 
-        use_name = st.checkbox("Update name", key="patch_microbiology_agent_use_name")
+        use_name = st.checkbox("Update name", key=f"patch_microbiology_agent_use_name_{selected_agent_id}")
         patch_name = st.text_input(
             "Name",
             value=str(selected.get("name") or ""),
-            key="patch_microbiology_agent_name",
+            key=f"patch_microbiology_agent_name_{selected_agent_id}",
         )
 
-        use_description = st.checkbox("Update description", key="patch_microbiology_agent_use_description")
+        use_description = st.checkbox(
+            "Update description",
+            key=f"patch_microbiology_agent_use_description_{selected_agent_id}",
+        )
         patch_description = st.text_area(
             "Description",
             value=str(selected.get("description") or ""),
-            key="patch_microbiology_agent_description",
+            key=f"patch_microbiology_agent_description_{selected_agent_id}",
         )
 
         submitted = st.form_submit_button("Apply patch", width="stretch")
@@ -5521,27 +5628,34 @@ def render_medical_procedure_patch_tab(procedures: list[dict[str, Any]]) -> None
         format_func=medical_procedure_label,
         key="patch_medical_procedure_select",
     )
+    selected_procedure_id = int(selected["id"])
 
     with st.form("patch_medical_procedure_form"):
-        use_snomed_code = st.checkbox("Update SNOMED-CT code", key="patch_medical_procedure_use_code")
+        use_snomed_code = st.checkbox(
+            "Update SNOMED-CT code",
+            key=f"patch_medical_procedure_use_code_{selected_procedure_id}",
+        )
         patch_snomed_code = st.text_input(
             "SNOMED-CT code",
             value=str(selected.get("snomed_ct_code") or ""),
-            key="patch_medical_procedure_code",
+            key=f"patch_medical_procedure_code_{selected_procedure_id}",
         )
 
-        use_name = st.checkbox("Update name", key="patch_medical_procedure_use_name")
+        use_name = st.checkbox("Update name", key=f"patch_medical_procedure_use_name_{selected_procedure_id}")
         patch_name = st.text_input(
             "Name",
             value=str(selected.get("name") or ""),
-            key="patch_medical_procedure_name",
+            key=f"patch_medical_procedure_name_{selected_procedure_id}",
         )
 
-        use_description = st.checkbox("Update description", key="patch_medical_procedure_use_description")
+        use_description = st.checkbox(
+            "Update description",
+            key=f"patch_medical_procedure_use_description_{selected_procedure_id}",
+        )
         patch_description = st.text_area(
             "Description",
             value=str(selected.get("description") or ""),
-            key="patch_medical_procedure_description",
+            key=f"patch_medical_procedure_description_{selected_procedure_id}",
         )
 
         submitted = st.form_submit_button("Apply patch", width="stretch")
@@ -5721,27 +5835,37 @@ def render_surgical_intervention_patch_tab(interventions: list[dict[str, Any]]) 
         format_func=surgical_intervention_label,
         key="patch_surgical_intervention_select",
     )
+    selected_intervention_id = int(selected["id"])
 
     with st.form("patch_surgical_intervention_form"):
-        use_snomed_code = st.checkbox("Update SNOMED-CT code", key="patch_surgical_intervention_use_code")
+        use_snomed_code = st.checkbox(
+            "Update SNOMED-CT code",
+            key=f"patch_surgical_intervention_use_code_{selected_intervention_id}",
+        )
         patch_snomed_code = st.text_input(
             "SNOMED-CT code",
             value=str(selected.get("snomed_ct_code") or ""),
-            key="patch_surgical_intervention_code",
+            key=f"patch_surgical_intervention_code_{selected_intervention_id}",
         )
 
-        use_name = st.checkbox("Update name", key="patch_surgical_intervention_use_name")
+        use_name = st.checkbox(
+            "Update name",
+            key=f"patch_surgical_intervention_use_name_{selected_intervention_id}",
+        )
         patch_name = st.text_input(
             "Name",
             value=str(selected.get("name") or ""),
-            key="patch_surgical_intervention_name",
+            key=f"patch_surgical_intervention_name_{selected_intervention_id}",
         )
 
-        use_description = st.checkbox("Update description", key="patch_surgical_intervention_use_description")
+        use_description = st.checkbox(
+            "Update description",
+            key=f"patch_surgical_intervention_use_description_{selected_intervention_id}",
+        )
         patch_description = st.text_area(
             "Description",
             value=str(selected.get("description") or ""),
-            key="patch_surgical_intervention_description",
+            key=f"patch_surgical_intervention_description_{selected_intervention_id}",
         )
 
         submitted = st.form_submit_button("Apply patch", width="stretch")
@@ -5918,27 +6042,34 @@ def render_complication_patch_tab(complications: list[dict[str, Any]]) -> None:
         format_func=complication_label,
         key="patch_complication_select",
     )
+    selected_complication_id = int(selected["id"])
 
     with st.form("patch_complication_form"):
-        use_snomed_code = st.checkbox("Update SNOMED-CT code", key="patch_complication_use_code")
+        use_snomed_code = st.checkbox(
+            "Update SNOMED-CT code",
+            key=f"patch_complication_use_code_{selected_complication_id}",
+        )
         patch_snomed_code = st.text_input(
             "SNOMED-CT code",
             value=str(selected.get("snomed_ct_code") or ""),
-            key="patch_complication_code",
+            key=f"patch_complication_code_{selected_complication_id}",
         )
 
-        use_name = st.checkbox("Update name", key="patch_complication_use_name")
+        use_name = st.checkbox("Update name", key=f"patch_complication_use_name_{selected_complication_id}")
         patch_name = st.text_input(
             "Name",
             value=str(selected.get("name") or ""),
-            key="patch_complication_name",
+            key=f"patch_complication_name_{selected_complication_id}",
         )
 
-        use_description = st.checkbox("Update description", key="patch_complication_use_description")
+        use_description = st.checkbox(
+            "Update description",
+            key=f"patch_complication_use_description_{selected_complication_id}",
+        )
         patch_description = st.text_area(
             "Description",
             value=str(selected.get("description") or ""),
-            key="patch_complication_description",
+            key=f"patch_complication_description_{selected_complication_id}",
         )
 
         submitted = st.form_submit_button("Apply patch", width="stretch")
