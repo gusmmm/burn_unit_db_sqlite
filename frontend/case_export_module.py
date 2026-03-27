@@ -45,13 +45,15 @@ def _build_md_table(columns: list[str], rows: list[dict[str, Any]]) -> str:
 
 
 def _build_pdf_table(pdf: FPDF, title: str, columns: list[str], rows: list[dict[str, Any]]) -> None:
-    """Write a compact table into a PDF document."""
+    """Write a readable table into a PDF document with adaptive widths and wrapping."""
+
     def wrap_cell_text(text: Any, max_width: float) -> list[str]:
         """Wrap text to fit inside a PDF table cell width."""
         raw_text = _fmt(text)
         if not raw_text:
             return [""]
 
+        usable_width = max(max_width, 2.0)
         normalized = raw_text.replace("\r\n", "\n").replace("\r", "\n")
         paragraphs = normalized.split("\n")
         wrapped_lines: list[str] = []
@@ -65,7 +67,7 @@ def _build_pdf_table(pdf: FPDF, title: str, columns: list[str], rows: list[dict[
             current = ""
             for word in words:
                 candidate = word if not current else f"{current} {word}"
-                if pdf.get_string_width(candidate) <= max_width:
+                if pdf.get_string_width(candidate) <= usable_width:
                     current = candidate
                     continue
 
@@ -77,7 +79,7 @@ def _build_pdf_table(pdf: FPDF, title: str, columns: list[str], rows: list[dict[
                 chunk = ""
                 for char in word:
                     next_chunk = f"{chunk}{char}"
-                    if pdf.get_string_width(next_chunk) <= max_width:
+                    if pdf.get_string_width(next_chunk) <= usable_width:
                         chunk = next_chunk
                     else:
                         if chunk:
@@ -90,10 +92,60 @@ def _build_pdf_table(pdf: FPDF, title: str, columns: list[str], rows: list[dict[
 
         return wrapped_lines or [""]
 
-    def draw_header(col_width: float, line_height: float, pad_x: float) -> None:
-        """Draw wrapped table header row."""
-        header_lines = [wrap_cell_text(col, col_width - (2 * pad_x)) for col in columns]
-        header_height = (max(len(lines) for lines in header_lines) * line_height) + 2
+    def column_weights(table_rows: list[dict[str, Any]], pad_x: float) -> list[float]:
+        """Estimate preferred column widths based on headers and sampled rows."""
+        sample_rows = table_rows[:40]
+        weights: list[float] = []
+        for col in columns:
+            header_w = pdf.get_string_width(_fmt(col))
+            body_w = 0.0
+            for row in sample_rows:
+                cell_lines = _fmt(row.get(col, "")).replace("\r\n", "\n").replace("\r", "\n").split("\n")
+                longest = max((pdf.get_string_width(line.strip()) for line in cell_lines), default=0.0)
+                if longest > body_w:
+                    body_w = longest
+            weights.append(max(header_w * 1.15, body_w * 0.70) + (2 * pad_x))
+        return weights
+
+    def normalize_widths(weights: list[float], page_width: float, min_width: float) -> list[float]:
+        """Fit preferred widths to available space while preserving readability."""
+        if not weights:
+            return []
+
+        widths = [max(min_width, weight) for weight in weights]
+        total = sum(widths)
+
+        if total < page_width:
+            slack = page_width - total
+            weight_total = sum(weights) or float(len(widths))
+            for idx, weight in enumerate(weights):
+                widths[idx] += slack * (weight / weight_total)
+            return widths
+
+        if total > page_width:
+            deficit = total - page_width
+            shrinkable = [max(0.0, width - min_width) for width in widths]
+            shrink_total = sum(shrinkable)
+            if shrink_total > 0:
+                ratio = min(1.0, deficit / shrink_total)
+                for idx, amount in enumerate(shrinkable):
+                    widths[idx] -= amount * ratio
+
+        final_total = sum(widths)
+        if final_total > page_width:
+            # Last-resort fallback for many columns on narrow pages.
+            uniform = page_width / len(widths)
+            widths = [uniform for _ in widths]
+        return widths
+
+    def draw_header(col_widths: list[float], line_height: float, pad_x: float, pad_y: float) -> None:
+        """Draw wrapped and filled table header row."""
+        pdf.set_font("Helvetica", "B", header_font_size)
+        header_lines = [
+            wrap_cell_text(col, width - (2 * pad_x))
+            for col, width in zip(columns, col_widths)
+        ]
+        header_height = (max(len(lines) for lines in header_lines) * line_height) + (2 * pad_y)
 
         if pdf.get_y() + header_height > pdf.page_break_trigger:
             pdf.add_page()
@@ -102,48 +154,69 @@ def _build_pdf_table(pdf: FPDF, title: str, columns: list[str], rows: list[dict[
         row_top_y = pdf.get_y()
         pdf.set_x(start_x)
 
-        for header_col_lines in header_lines:
+        pdf.set_fill_color(232, 236, 240)
+        for header_col_lines, width in zip(header_lines, col_widths):
             cell_x = pdf.get_x()
-            pdf.rect(cell_x, row_top_y, col_width, header_height)
-            pdf.set_xy(cell_x + pad_x, row_top_y + 1)
-            pdf.multi_cell(col_width - (2 * pad_x), line_height, "\n".join(header_col_lines), border=0)
-            pdf.set_xy(cell_x + col_width, row_top_y)
+            pdf.rect(cell_x, row_top_y, width, header_height, style="DF")
+            pdf.set_xy(cell_x + pad_x, row_top_y + pad_y)
+            pdf.multi_cell(width - (2 * pad_x), line_height, "\n".join(header_col_lines), border=0)
+            pdf.set_xy(cell_x + width, row_top_y)
 
         pdf.set_xy(start_x, row_top_y + header_height)
 
     pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(30, 30, 30)
     pdf.cell(0, 8, title, new_x="LMARGIN", new_y="NEXT")
 
     table_rows = rows if rows else [{col: "-" for col in columns}]
     page_width = pdf.w - pdf.l_margin - pdf.r_margin
-    col_width = page_width / max(len(columns), 1)
-    line_height = 4.5
-    pad_x = 1.0
 
-    pdf.set_font("Helvetica", "B", 9)
-    draw_header(col_width, line_height, pad_x)
+    wide_table = len(columns) >= 6
+    header_font_size = 8 if wide_table else 9
+    body_font_size = 8 if wide_table else 9
+    line_height = 4.2 if wide_table else 4.6
+    pad_x = 1.4
+    pad_y = 1.2
 
-    pdf.set_font("Helvetica", "", 9)
-    for row in table_rows:
-        row_lines = [wrap_cell_text(row.get(col, ""), col_width - (2 * pad_x)) for col in columns]
-        row_height = (max(len(lines) for lines in row_lines) * line_height) + 2
+    pdf.set_font("Helvetica", "", body_font_size)
+    min_width = 18.0 if wide_table else 22.0
+    weights = column_weights(table_rows, pad_x)
+
+    if len(columns) == 2 and {c.lower() for c in columns} == {"field", "value"}:
+        col_widths = [max(36.0, page_width * 0.33), min(page_width * 0.67, page_width - 36.0)]
+    else:
+        col_widths = normalize_widths(weights, page_width, min_width)
+
+    draw_header(col_widths, line_height, pad_x, pad_y)
+
+    pdf.set_font("Helvetica", "", body_font_size)
+    for row_index, row in enumerate(table_rows):
+        row_lines = [
+            wrap_cell_text(row.get(col, ""), width - (2 * pad_x))
+            for col, width in zip(columns, col_widths)
+        ]
+        row_height = (max(len(lines) for lines in row_lines) * line_height) + (2 * pad_y)
 
         if pdf.get_y() + row_height > pdf.page_break_trigger:
             pdf.add_page()
-            pdf.set_font("Helvetica", "B", 9)
-            draw_header(col_width, line_height, pad_x)
-            pdf.set_font("Helvetica", "", 9)
+            draw_header(col_widths, line_height, pad_x, pad_y)
+            pdf.set_font("Helvetica", "", body_font_size)
 
         start_x = pdf.l_margin
         row_top_y = pdf.get_y()
         pdf.set_x(start_x)
 
-        for cell_lines in row_lines:
+        if row_index % 2 == 0:
+            pdf.set_fill_color(248, 249, 250)
+        else:
+            pdf.set_fill_color(255, 255, 255)
+
+        for cell_lines, width in zip(row_lines, col_widths):
             cell_x = pdf.get_x()
-            pdf.rect(cell_x, row_top_y, col_width, row_height)
-            pdf.set_xy(cell_x + pad_x, row_top_y + 1)
-            pdf.multi_cell(col_width - (2 * pad_x), line_height, "\n".join(cell_lines), border=0)
-            pdf.set_xy(cell_x + col_width, row_top_y)
+            pdf.rect(cell_x, row_top_y, width, row_height, style="DF")
+            pdf.set_xy(cell_x + pad_x, row_top_y + pad_y)
+            pdf.multi_cell(width - (2 * pad_x), line_height, "\n".join(cell_lines), border=0)
+            pdf.set_xy(cell_x + width, row_top_y)
 
         pdf.set_xy(start_x, row_top_y + row_height)
 
