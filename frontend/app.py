@@ -3132,6 +3132,7 @@ def render_case_infections_section(selected_case: dict[str, Any]) -> None:
             infection = infections_by_id.get(row.get("infection_id"), {})
             enriched_rows.append(
                 {
+                    "ID": row.get("id"),
                     "Infection": f"[{row.get('infection_id')}] {infection.get('name', 'Unknown infection')}",
                     "Date of infection": row.get("date_of_infection") or "",
                     "Note": row.get("note") or "",
@@ -3191,9 +3192,11 @@ def render_case_infections_section(selected_case: dict[str, Any]) -> None:
             with st.form("edit_case_infection_form"):
                 infection_assoc_options = [
                     {
+                        "id": row["id"],
+                        "case_id": row["case_id"],
                         "infection_id": row["infection_id"],
                         "label": (
-                            f"{row['infection_id']} - "
+                            f"#{row['id']} | {row['infection_id']} - "
                             f"{infections_by_id.get(row['infection_id'], {}).get('name', 'Unknown infection')}"
                         ),
                         "date_of_infection": row.get("date_of_infection") or "",
@@ -3212,7 +3215,7 @@ def render_case_infections_section(selected_case: dict[str, Any]) -> None:
                     text_key="edit_case_infection_date_text",
                     picker_key="edit_case_infection_date_picker",
                     initial_value=selected_assoc.get("date_of_infection", ""),
-                    sync_token=f"case-{case_id}-infection-{selected_assoc['infection_id']}",
+                    sync_token=f"case-infection-{selected_assoc['id']}",
                 )
                 patch_note = st.text_area("Update note", value=selected_assoc.get("note", ""))
 
@@ -3226,10 +3229,9 @@ def render_case_infections_section(selected_case: dict[str, Any]) -> None:
                             "date_of_infection": parsed_date,
                             "note": optional_text(patch_note),
                         }
-                        target_infection_id = selected_assoc["infection_id"]
                         status_code, data = request_json(
                             "PATCH",
-                            f"/case-infections/{case_id}/{target_infection_id}",
+                            f"/case-infections/{selected_assoc['id']}",
                             payload,
                         )
                         show_api_result(status_code, data)
@@ -3242,9 +3244,10 @@ def render_case_infections_section(selected_case: dict[str, Any]) -> None:
             with st.form("delete_case_infection_form"):
                 infection_assoc_options = [
                     {
+                        "id": row["id"],
                         "infection_id": row["infection_id"],
                         "label": (
-                            f"{row['infection_id']} - "
+                            f"#{row['id']} | {row['infection_id']} - "
                             f"{infections_by_id.get(row['infection_id'], {}).get('name', 'Unknown infection')}"
                         ),
                     }
@@ -3258,10 +3261,9 @@ def render_case_infections_section(selected_case: dict[str, Any]) -> None:
                 )
 
                 if st.form_submit_button("Delete Case Infection", type="primary"):
-                    target_infection_id = selected_assoc["infection_id"]
                     status_code, data = request_json(
                         "DELETE",
-                        f"/case-infections/{case_id}/{target_infection_id}",
+                        f"/case-infections/{selected_assoc['id']}",
                     )
                     show_api_result(status_code, data)
                     if 200 <= status_code < 300:

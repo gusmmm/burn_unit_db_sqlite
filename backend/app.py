@@ -465,6 +465,7 @@ class CaseInfectionPatch(BaseModel):
 class CaseInfectionRead(BaseModel):
     """Response model representing a case_infections association row."""
 
+    id: int
     case_id: int
     infection_id: int
     date_of_infection: str | None = None
@@ -1146,17 +1147,16 @@ def get_case_burns_or_404(
 
 def get_case_infection_or_404(
     connection: sqlite3.Connection,
-    case_id: int,
-    infection_id: int,
+    case_infection_id: int,
 ) -> dict[str, Any]:
-    """Fetch a case_infections association row by composite key or raise 404 if not found."""
+    """Fetch a case_infections association row by id or raise 404 if not found."""
     row = connection.execute(
         """
         SELECT *
         FROM case_infections
-        WHERE case_id = ? AND infection_id = ?
+        WHERE id = ?
         """,
-        (case_id, infection_id),
+        (case_infection_id,),
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Case infection association not found")
@@ -2934,26 +2934,26 @@ def get_case_infections(case_id: int | None = None) -> list[dict[str, Any]]:
                 SELECT *
                 FROM case_infections
                 WHERE case_id = ?
-                ORDER BY case_id, infection_id
+                ORDER BY id
                 """,
                 (case_id,),
             ).fetchall()
         else:
             rows = connection.execute(
-                "SELECT * FROM case_infections ORDER BY case_id, infection_id"
+                "SELECT * FROM case_infections ORDER BY id"
             ).fetchall()
     return [dict(row) for row in rows]
 
 
 @app.get(
-    "/case-infections/{case_id}/{infection_id}",
+    "/case-infections/{case_infection_id}",
     tags=["case_infections"],
     response_model=CaseInfectionRead,
 )
-def get_case_infection(case_id: int, infection_id: int) -> dict[str, Any]:
-    """Return one case_infections association by composite key."""
+def get_case_infection(case_infection_id: int) -> dict[str, Any]:
+    """Return one case_infections association by id."""
     with get_connection() as connection:
-        return get_case_infection_or_404(connection, case_id, infection_id)
+        return get_case_infection_or_404(connection, case_infection_id)
 
 
 @app.post(
@@ -2966,7 +2966,7 @@ def create_case_infection(payload: CaseInfectionCreate) -> dict[str, Any]:
     """Create a case_infections association and return the inserted row."""
     try:
         with get_connection() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO case_infections (case_id, infection_id, date_of_infection, note)
                 VALUES (?, ?, ?, ?)
@@ -2978,13 +2978,14 @@ def create_case_infection(payload: CaseInfectionCreate) -> dict[str, Any]:
                     payload.note,
                 ),
             )
+            inserted_id = cursor.lastrowid
             row = connection.execute(
                 """
                 SELECT *
                 FROM case_infections
-                WHERE case_id = ? AND infection_id = ?
+                WHERE id = ?
                 """,
-                (payload.case_id, payload.infection_id),
+                (inserted_id,),
             ).fetchone()
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid case_infections data: {exc}") from exc
@@ -2995,16 +2996,15 @@ def create_case_infection(payload: CaseInfectionCreate) -> dict[str, Any]:
 
 
 @app.patch(
-    "/case-infections/{case_id}/{infection_id}",
+    "/case-infections/{case_infection_id}",
     tags=["case_infections"],
     response_model=CaseInfectionRead,
 )
 def patch_case_infection(
-    case_id: int,
-    infection_id: int,
+    case_infection_id: int,
     payload: CaseInfectionPatch,
 ) -> dict[str, Any]:
-    """Partially update a case_infections association row by composite key."""
+    """Partially update a case_infections association row by id."""
     updates = payload.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields provided to update")
@@ -3022,24 +3022,21 @@ def patch_case_infection(
         raise HTTPException(status_code=400, detail="No valid fields provided to update")
 
     assignments.append("updated_at = CURRENT_TIMESTAMP")
-    values.extend([case_id, infection_id])
+    values.append(case_infection_id)
 
-    query = f"UPDATE case_infections SET {', '.join(assignments)} WHERE case_id = ? AND infection_id = ?"
-
-    new_case_id = updates.get("case_id", case_id)
-    new_infection_id = updates.get("infection_id", infection_id)
+    query = f"UPDATE case_infections SET {', '.join(assignments)} WHERE id = ?"
 
     try:
         with get_connection() as connection:
-            get_case_infection_or_404(connection, case_id, infection_id)
+            get_case_infection_or_404(connection, case_infection_id)
             connection.execute(query, values)
             row = connection.execute(
                 """
                 SELECT *
                 FROM case_infections
-                WHERE case_id = ? AND infection_id = ?
+                WHERE id = ?
                 """,
-                (new_case_id, new_infection_id),
+                (case_infection_id,),
             ).fetchone()
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid case_infections data: {exc}") from exc
@@ -3049,17 +3046,17 @@ def patch_case_infection(
     return dict(row)
 
 
-@app.delete("/case-infections/{case_id}/{infection_id}", tags=["case_infections"])
-def delete_case_infection(case_id: int, infection_id: int) -> dict[str, str]:
-    """Delete one case_infections association row by composite key."""
+@app.delete("/case-infections/{case_infection_id}", tags=["case_infections"])
+def delete_case_infection(case_infection_id: int) -> dict[str, str]:
+    """Delete one case_infections association row by id."""
     with get_connection() as connection:
-        get_case_infection_or_404(connection, case_id, infection_id)
+        get_case_infection_or_404(connection, case_infection_id)
         connection.execute(
-            "DELETE FROM case_infections WHERE case_id = ? AND infection_id = ?",
-            (case_id, infection_id),
+            "DELETE FROM case_infections WHERE id = ?",
+            (case_infection_id,),
         )
 
-    return {"message": f"Association ({case_id}, {infection_id}) deleted"}
+    return {"message": f"Association {case_infection_id} deleted"}
 
 
 @app.get("/case-antibiotics", tags=["case_antibiotics"], response_model=list[CaseAntibioticRead])

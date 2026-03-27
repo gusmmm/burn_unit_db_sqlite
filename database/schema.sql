@@ -188,13 +188,13 @@ CREATE TABLE IF NOT EXISTS infections (
 
 -- Table: case_infections
 CREATE TABLE IF NOT EXISTS case_infections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     case_id INTEGER NOT NULL,
     infection_id INTEGER NOT NULL,
     date_of_infection DATE,
     note TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (case_id, infection_id),
     FOREIGN KEY (case_id) REFERENCES burn_unit_cases(id),
     FOREIGN KEY (infection_id) REFERENCES infections(id)
 );
