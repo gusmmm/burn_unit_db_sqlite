@@ -4412,11 +4412,13 @@ def render_patient_pathologies_section(
             st.info("No pathologies available. Create pathologies first in the Pathologies tab.")
         else:
             pathology_options = sorted(pathologies, key=lambda p: int(p.get("id", 0)))
-            with st.form("patient_overview_assoc_create_form"):
+            with st.form("patient_overview_assoc_create_form", clear_on_submit=True):
                 pathology = st.selectbox(
                     "Pathology",
                     options=pathology_options,
                     format_func=pathology_label,
+                    index=None,
+                    placeholder="Select pathology",
                 )
                 diagnosed_date = date_text_with_picker(
                     "Diagnosed date (YYYY-MM-DD)",
@@ -4427,6 +4429,9 @@ def render_patient_pathologies_section(
                 submitted = st.form_submit_button("Create association", width="stretch")
 
                 if submitted:
+                    if pathology is None:
+                        st.error("Pathology is required.")
+                        return
                     diagnosed_date_value = optional_text(diagnosed_date)
                     if diagnosed_date_value:
                         try:
@@ -4589,11 +4594,13 @@ def render_patient_medications_section(
             st.info("No medications available. Create medications first in the Medications tab.")
         else:
             medication_options = sorted(medications, key=lambda m: int(m.get("id", 0)))
-            with st.form("patient_overview_med_assoc_create_form"):
+            with st.form("patient_overview_med_assoc_create_form", clear_on_submit=True):
                 medication = st.selectbox(
                     "Medication",
                     options=medication_options,
                     format_func=medication_label,
+                    index=None,
+                    placeholder="Select medication",
                 )
                 prescribed_date = date_text_with_picker(
                     "Prescribed date (YYYY-MM-DD)",
@@ -4604,6 +4611,9 @@ def render_patient_medications_section(
                 submitted = st.form_submit_button("Create association", width="stretch")
 
                 if submitted:
+                    if medication is None:
+                        st.error("Medication is required.")
+                        return
                     prescribed_date_value = optional_text(prescribed_date)
                     if prescribed_date_value:
                         try:
