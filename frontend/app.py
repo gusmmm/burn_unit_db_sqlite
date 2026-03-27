@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 import requests
@@ -309,6 +309,55 @@ def parse_optional_date_input(value: str) -> str | None:
     return parse_birth_date_input(clean)
 
 
+DATE_INPUT_MIN = date(1900, 1, 1)
+
+
+def date_text_with_picker(
+    label: str,
+    *,
+    text_key: str,
+    picker_key: str,
+    initial_value: str = "",
+    placeholder: str = "Optional",
+    sync_token: str | int | None = None,
+) -> str:
+    """Render a single date picker constrained to [1900-01-01, today]."""
+    sync_state_key = f"{text_key}__sync_token"
+    today = datetime.today().date()
+
+    def _coerce_initial_date(value: str) -> date | None:
+        clean = (value or "").strip()
+        if not clean:
+            return None
+        try:
+            parsed = datetime.strptime(clean, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+        if parsed < DATE_INPUT_MIN or parsed > today:
+            return None
+        return parsed
+
+    initial_date = _coerce_initial_date(initial_value)
+
+    if sync_token is not None:
+        if st.session_state.get(sync_state_key) != str(sync_token):
+            st.session_state[picker_key] = initial_date
+            st.session_state[sync_state_key] = str(sync_token)
+    elif picker_key not in st.session_state:
+        st.session_state[picker_key] = initial_date
+
+    picked = st.date_input(
+        label,
+        value=st.session_state.get(picker_key),
+        min_value=DATE_INPUT_MIN,
+        max_value=today,
+        key=picker_key,
+        format="YYYY-MM-DD",
+    )
+
+    return picked.isoformat() if picked else ""
+
+
 def address_options(addresses: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Build address options including empty choice."""
     options = [{"id": None, "label": "No address"}]
@@ -466,7 +515,12 @@ def render_create_tab(addr_opts: list[dict[str, Any]]) -> None:
     with st.form("create_patient_form"):
         patient_id = st.number_input("Patient ID", min_value=1, step=1, format="%d")
         name = st.text_input("Name", placeholder="Patient full name")
-        birth_date = st.text_input("Birth date (YYYY-MM-DD)", placeholder="e.g. 1985-07-23")
+        birth_date = date_text_with_picker(
+            "Birth date (YYYY-MM-DD)",
+            text_key="create_patient_birth_date_text",
+            picker_key="create_patient_birth_date_picker",
+            placeholder="e.g. 1985-07-23",
+        )
         gender = st.selectbox("Gender", options=ALLOWED_GENDERS)
         address = st.selectbox(
             "Address (municipio)",
@@ -528,9 +582,12 @@ def render_put_tab(patients: list[dict[str, Any]], addr_opts: list[dict[str, Any
 
     with st.form("put_patient_form"):
         name = st.text_input("Name", value=str(selected.get("name", "")))
-        birth = st.text_input(
+        birth = date_text_with_picker(
             "Birth date (YYYY-MM-DD)",
-            value=birth_date_text(selected.get("birth_date")),
+            text_key="put_patient_birth_date_text",
+            picker_key="put_patient_birth_date_picker",
+            initial_value=birth_date_text(selected.get("birth_date")),
+            sync_token=f"patient-{selected.get('id')}",
         )
         gender = st.selectbox(
             "Gender",
@@ -588,10 +645,12 @@ def render_patch_tab(patients: list[dict[str, Any]], addr_opts: list[dict[str, A
         )
 
         use_birth = st.checkbox("Update birth date", key=f"patch_patient_use_birth_{selected_patient_id}")
-        patch_birth = st.text_input(
+        patch_birth = date_text_with_picker(
             "Birth date (YYYY-MM-DD)",
-            value=birth_date_text(selected.get("birth_date")),
-            key=f"patch_birth_date_{selected_patient_id}",
+            text_key=f"patch_birth_date_text_{selected_patient_id}",
+            picker_key=f"patch_birth_date_picker_{selected_patient_id}",
+            initial_value=birth_date_text(selected.get("birth_date")),
+            sync_token=f"patient-{selected_patient_id}",
         )
 
         use_gender = st.checkbox("Update gender", key=f"patch_patient_use_gender_{selected_patient_id}")
@@ -1842,9 +1901,21 @@ def render_burn_unit_case_create_tab(
             key="create_burn_case_patient",
         )
         tbsa_burned = st.text_input("TBSA burned (%)", placeholder="Optional numeric value")
-        admission_date = st.text_input("Admission date (YYYY-MM-DD)", placeholder="Optional")
-        burn_date = st.text_input("Burn date (YYYY-MM-DD)", placeholder="Optional")
-        release_date = st.text_input("Release date (YYYY-MM-DD)", placeholder="Optional")
+        admission_date = date_text_with_picker(
+            "Admission date (YYYY-MM-DD)",
+            text_key="create_burn_case_admission_date_text",
+            picker_key="create_burn_case_admission_date_picker",
+        )
+        burn_date = date_text_with_picker(
+            "Burn date (YYYY-MM-DD)",
+            text_key="create_burn_case_burn_date_text",
+            picker_key="create_burn_case_burn_date_picker",
+        )
+        release_date = date_text_with_picker(
+            "Release date (YYYY-MM-DD)",
+            text_key="create_burn_case_release_date_text",
+            picker_key="create_burn_case_release_date_picker",
+        )
         admission_provenance = st.selectbox(
             "Admission provenance",
             options=provenance_options,
@@ -2052,12 +2123,27 @@ def render_burn_unit_case_put_tab(
             key="put_burn_case_patient",
         )
         tbsa_burned = st.text_input("TBSA burned (%)", value=str(selected.get("TBSA_burned") or ""))
-        admission_date = st.text_input(
+        admission_date = date_text_with_picker(
             "Admission date (YYYY-MM-DD)",
-            value=str(selected.get("admission_date") or ""),
+            text_key="put_burn_case_admission_date_text",
+            picker_key="put_burn_case_admission_date_picker",
+            initial_value=str(selected.get("admission_date") or ""),
+            sync_token=f"burn-case-{selected.get('id')}",
         )
-        burn_date = st.text_input("Burn date (YYYY-MM-DD)", value=str(selected.get("burn_date") or ""))
-        release_date = st.text_input("Release date (YYYY-MM-DD)", value=str(selected.get("release_date") or ""))
+        burn_date = date_text_with_picker(
+            "Burn date (YYYY-MM-DD)",
+            text_key="put_burn_case_burn_date_text",
+            picker_key="put_burn_case_burn_date_picker",
+            initial_value=str(selected.get("burn_date") or ""),
+            sync_token=f"burn-case-{selected.get('id')}",
+        )
+        release_date = date_text_with_picker(
+            "Release date (YYYY-MM-DD)",
+            text_key="put_burn_case_release_date_text",
+            picker_key="put_burn_case_release_date_picker",
+            initial_value=str(selected.get("release_date") or ""),
+            sync_token=f"burn-case-{selected.get('id')}",
+        )
         admission_provenance = st.selectbox(
             "Admission provenance",
             options=provenance_options,
@@ -2253,24 +2339,30 @@ def render_burn_unit_case_patch_tab(
             "Update admission date",
             key=f"patch_burn_case_use_admission_date_{selected_case_id}",
         )
-        patch_admission_date = st.text_input(
+        patch_admission_date = date_text_with_picker(
             "Admission date (YYYY-MM-DD)",
-            value=str(selected.get("admission_date") or ""),
-            key=f"patch_burn_case_admission_date_{selected_case_id}",
+            text_key=f"patch_burn_case_admission_date_text_{selected_case_id}",
+            picker_key=f"patch_burn_case_admission_date_picker_{selected_case_id}",
+            initial_value=str(selected.get("admission_date") or ""),
+            sync_token=f"burn-case-{selected_case_id}",
         )
 
         use_burn_date = st.checkbox("Update burn date", key=f"patch_burn_case_use_burn_date_{selected_case_id}")
-        patch_burn_date = st.text_input(
+        patch_burn_date = date_text_with_picker(
             "Burn date (YYYY-MM-DD)",
-            value=str(selected.get("burn_date") or ""),
-            key=f"patch_burn_case_burn_date_{selected_case_id}",
+            text_key=f"patch_burn_case_burn_date_text_{selected_case_id}",
+            picker_key=f"patch_burn_case_burn_date_picker_{selected_case_id}",
+            initial_value=str(selected.get("burn_date") or ""),
+            sync_token=f"burn-case-{selected_case_id}",
         )
 
         use_release_date = st.checkbox("Update release date", key=f"patch_burn_case_use_release_date_{selected_case_id}")
-        patch_release_date = st.text_input(
+        patch_release_date = date_text_with_picker(
             "Release date (YYYY-MM-DD)",
-            value=str(selected.get("release_date") or ""),
-            key=f"patch_burn_case_release_date_{selected_case_id}",
+            text_key=f"patch_burn_case_release_date_text_{selected_case_id}",
+            picker_key=f"patch_burn_case_release_date_picker_{selected_case_id}",
+            initial_value=str(selected.get("release_date") or ""),
+            sync_token=f"burn-case-{selected_case_id}",
         )
 
         use_admission_provenance = st.checkbox(
@@ -2866,9 +2958,11 @@ def render_case_associated_injuries_section(selected_case: dict[str, Any]) -> No
                 index=None,
                 placeholder="Select associated injury",
             )
-            # The schema allows date_of_injury, let's use date_input with a default to today
-            import datetime
-            date_of_injury = st.date_input("Date of Injury", value=None)
+            date_of_injury = date_text_with_picker(
+                "Date of Injury (YYYY-MM-DD)",
+                text_key="create_case_associated_injury_date_text",
+                picker_key="create_case_associated_injury_date_picker",
+            )
             note = st.text_area("Note", placeholder="Optional")
             
             if st.form_submit_button("Add Associated Injury"):
@@ -2878,7 +2972,7 @@ def render_case_associated_injuries_section(selected_case: dict[str, Any]) -> No
                 payload = {
                     "case_id": case_id,
                     "injury_id": sel_injury["id"],
-                    "date_of_injury": date_of_injury.isoformat() if date_of_injury else None,
+                    "date_of_injury": parse_optional_date_input(date_of_injury),
                     "note": optional_text(note),
                 }
                 status_code, data = request_json("POST", "/case-associated-injuries", payload)
@@ -2905,18 +2999,18 @@ def render_case_associated_injuries_section(selected_case: dict[str, Any]) -> No
                 target_note = selected_opt["note"] if selected_opt else ""
                 target_date_str = selected_opt["date_of_injury"] if selected_opt else None
 
-                import datetime
-                try: # try to parse the existing date string if any
-                    default_date = datetime.date.fromisoformat(target_date_str) if target_date_str else None
-                except Exception:
-                    default_date = None
-                
-                patch_date = st.date_input("Update Date of Injury", value=default_date)
+                patch_date = date_text_with_picker(
+                    "Update Date of Injury (YYYY-MM-DD)",
+                    text_key="edit_case_associated_injury_date_text",
+                    picker_key="edit_case_associated_injury_date_picker",
+                    initial_value=target_date_str or "",
+                    sync_token=f"case-{case_id}-injury-{target_injury_id}",
+                )
                 patch_note = st.text_area("Update Note", value=target_note)
                 
                 if st.form_submit_button("Update Associated Injury"):
                     payload = {
-                        "date_of_injury": patch_date.isoformat() if patch_date else None,
+                        "date_of_injury": parse_optional_date_input(patch_date),
                         "note": patch_note
                     }
                     status_code, data = request_json("PATCH", f"/case-associated-injuries/{case_id}/{target_injury_id}", payload)
@@ -2997,7 +3091,11 @@ def render_case_infections_section(selected_case: dict[str, Any]) -> None:
                     index=None,
                     placeholder="Select infection",
                 )
-                date_of_infection = st.text_input("Date of infection (YYYY-MM-DD)", placeholder="Optional")
+                date_of_infection = date_text_with_picker(
+                    "Date of infection (YYYY-MM-DD)",
+                    text_key="create_case_infection_date_text",
+                    picker_key="create_case_infection_date_picker",
+                )
                 note = st.text_area("Note", placeholder="Optional")
 
                 if st.form_submit_button("Add Case Infection"):
@@ -3042,9 +3140,12 @@ def render_case_infections_section(selected_case: dict[str, Any]) -> None:
                     options=infection_assoc_options,
                     format_func=lambda option: option["label"],
                 )
-                patch_date_of_infection = st.text_input(
+                patch_date_of_infection = date_text_with_picker(
                     "Update date of infection (YYYY-MM-DD)",
-                    value=selected_assoc.get("date_of_infection", ""),
+                    text_key="edit_case_infection_date_text",
+                    picker_key="edit_case_infection_date_picker",
+                    initial_value=selected_assoc.get("date_of_infection", ""),
+                    sync_token=f"case-{case_id}-infection-{selected_assoc['infection_id']}",
                 )
                 patch_note = st.text_area("Update note", value=selected_assoc.get("note", ""))
 
@@ -3177,8 +3278,16 @@ def render_case_antibiotics_section(selected_case: dict[str, Any]) -> None:
                     placeholder="Select indication",
                     key="create_case_antibiotic_indication_select",
                 )
-                date_started = st.text_input("Date started (YYYY-MM-DD)", placeholder="Optional")
-                date_stopped = st.text_input("Date stopped (YYYY-MM-DD)", placeholder="Optional")
+                date_started = date_text_with_picker(
+                    "Date started (YYYY-MM-DD)",
+                    text_key="create_case_antibiotic_date_started_text",
+                    picker_key="create_case_antibiotic_date_started_picker",
+                )
+                date_stopped = date_text_with_picker(
+                    "Date stopped (YYYY-MM-DD)",
+                    text_key="create_case_antibiotic_date_stopped_text",
+                    picker_key="create_case_antibiotic_date_stopped_picker",
+                )
                 note = st.text_area("Note", placeholder="Optional")
 
                 if st.form_submit_button("Add Case Antibiotic"):
@@ -3255,13 +3364,23 @@ def render_case_antibiotics_section(selected_case: dict[str, Any]) -> None:
                     index=edit_indication_index,
                     key="edit_case_antibiotic_indication_select",
                 )
-                patch_date_started = st.text_input(
+                patch_date_started = date_text_with_picker(
                     "Update date started (YYYY-MM-DD)",
-                    value=selected_assoc.get("date_started", ""),
+                    text_key="edit_case_antibiotic_date_started_text",
+                    picker_key="edit_case_antibiotic_date_started_picker",
+                    initial_value=selected_assoc.get("date_started", ""),
+                    sync_token=(
+                        f"case-{selected_assoc['case_id']}-antibiotic-{selected_assoc['antibiotic_id']}"
+                    ),
                 )
-                patch_date_stopped = st.text_input(
+                patch_date_stopped = date_text_with_picker(
                     "Update date stopped (YYYY-MM-DD)",
-                    value=selected_assoc.get("date_stopped", ""),
+                    text_key="edit_case_antibiotic_date_stopped_text",
+                    picker_key="edit_case_antibiotic_date_stopped_picker",
+                    initial_value=selected_assoc.get("date_stopped", ""),
+                    sync_token=(
+                        f"case-{selected_assoc['case_id']}-antibiotic-{selected_assoc['antibiotic_id']}"
+                    ),
                 )
                 patch_note = st.text_area("Update note", value=selected_assoc.get("note", ""))
 
@@ -3404,8 +3523,16 @@ def render_case_microbiology_section(selected_case: dict[str, Any]) -> None:
                     key="create_case_microbiology_agent_select",
                 )
                 hospital_test_id = st.text_input("Hospital test id", placeholder="Optional")
-                date_of_collection = st.text_input("Date of collection (YYYY-MM-DD)", placeholder="Optional")
-                date_of_reporting = st.text_input("Date of reporting (YYYY-MM-DD)", placeholder="Optional")
+                date_of_collection = date_text_with_picker(
+                    "Date of collection (YYYY-MM-DD)",
+                    text_key="create_case_microbiology_collection_date_text",
+                    picker_key="create_case_microbiology_collection_date_picker",
+                )
+                date_of_reporting = date_text_with_picker(
+                    "Date of reporting (YYYY-MM-DD)",
+                    text_key="create_case_microbiology_reporting_date_text",
+                    picker_key="create_case_microbiology_reporting_date_picker",
+                )
                 note = st.text_area("Note", placeholder="Optional")
 
                 submitted = st.form_submit_button("Add Case Microbiology")
@@ -3481,13 +3608,19 @@ def render_case_microbiology_section(selected_case: dict[str, Any]) -> None:
                     "Hospital test id",
                     value=selected_row.get("hospital_test_id", ""),
                 )
-                patch_date_of_collection = st.text_input(
+                patch_date_of_collection = date_text_with_picker(
                     "Update date of collection (YYYY-MM-DD)",
-                    value=selected_row.get("date_of_collection", ""),
+                    text_key="edit_case_microbiology_collection_date_text",
+                    picker_key="edit_case_microbiology_collection_date_picker",
+                    initial_value=selected_row.get("date_of_collection", ""),
+                    sync_token=f"case-{selected_case_id}-micro-{selected_row['id']}",
                 )
-                patch_date_of_reporting = st.text_input(
+                patch_date_of_reporting = date_text_with_picker(
                     "Update date of reporting (YYYY-MM-DD)",
-                    value=selected_row.get("date_of_reporting", ""),
+                    text_key="edit_case_microbiology_reporting_date_text",
+                    picker_key="edit_case_microbiology_reporting_date_picker",
+                    initial_value=selected_row.get("date_of_reporting", ""),
+                    sync_token=f"case-{selected_case_id}-micro-{selected_row['id']}",
                 )
                 patch_note = st.text_area("Update note", value=selected_row.get("note", ""))
 
@@ -3605,8 +3738,16 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
                     placeholder="Select procedure",
                     key="create_case_procedure_procedure_select",
                 )
-                date_started = st.text_input("Date started (YYYY-MM-DD)", placeholder="Optional")
-                date_stopped = st.text_input("Date stopped (YYYY-MM-DD)", placeholder="Optional")
+                date_started = date_text_with_picker(
+                    "Date started (YYYY-MM-DD)",
+                    text_key="create_case_procedure_date_started_text",
+                    picker_key="create_case_procedure_date_started_picker",
+                )
+                date_stopped = date_text_with_picker(
+                    "Date stopped (YYYY-MM-DD)",
+                    text_key="create_case_procedure_date_stopped_text",
+                    picker_key="create_case_procedure_date_stopped_picker",
+                )
                 before_admission = st.selectbox(
                     "Procedure was done before admission",
                     options=[True, False],
@@ -3679,13 +3820,19 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
                     index=edit_procedure_index,
                     key="edit_case_procedure_procedure_select",
                 )
-                patch_date_started = st.text_input(
+                patch_date_started = date_text_with_picker(
                     "Update date started (YYYY-MM-DD)",
-                    value=selected_assoc.get("date_started", ""),
+                    text_key="edit_case_procedure_date_started_text",
+                    picker_key="edit_case_procedure_date_started_picker",
+                    initial_value=selected_assoc.get("date_started", ""),
+                    sync_token=f"case-{selected_case_id}-procedure-{selected_assoc['id']}",
                 )
-                patch_date_stopped = st.text_input(
+                patch_date_stopped = date_text_with_picker(
                     "Update date stopped (YYYY-MM-DD)",
-                    value=selected_assoc.get("date_stopped", ""),
+                    text_key="edit_case_procedure_date_stopped_text",
+                    picker_key="edit_case_procedure_date_stopped_picker",
+                    initial_value=selected_assoc.get("date_stopped", ""),
+                    sync_token=f"case-{selected_case_id}-procedure-{selected_assoc['id']}",
                 )
                 patch_before_admission = st.checkbox(
                     "Procedure was done before admission",
@@ -3807,8 +3954,16 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
                     placeholder="Select intervention",
                     key="create_case_surgical_intervention_select",
                 )
-                date_started = st.text_input("Date started (YYYY-MM-DD)", placeholder="Optional")
-                date_stopped = st.text_input("Date stopped (YYYY-MM-DD)", placeholder="Optional")
+                date_started = date_text_with_picker(
+                    "Date started (YYYY-MM-DD)",
+                    text_key="create_case_intervention_date_started_text",
+                    picker_key="create_case_intervention_date_started_picker",
+                )
+                date_stopped = date_text_with_picker(
+                    "Date stopped (YYYY-MM-DD)",
+                    text_key="create_case_intervention_date_stopped_text",
+                    picker_key="create_case_intervention_date_stopped_picker",
+                )
                 note = st.text_area("Note", placeholder="Optional")
 
                 if st.form_submit_button("Add Case Surgical Intervention"):
@@ -3872,13 +4027,19 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
                     index=edit_intervention_index,
                     key="edit_case_surgical_intervention_select",
                 )
-                patch_date_started = st.text_input(
+                patch_date_started = date_text_with_picker(
                     "Update date started (YYYY-MM-DD)",
-                    value=selected_assoc.get("date_started", ""),
+                    text_key="edit_case_intervention_date_started_text",
+                    picker_key="edit_case_intervention_date_started_picker",
+                    initial_value=selected_assoc.get("date_started", ""),
+                    sync_token=f"case-{selected_case_id}-intervention-{selected_assoc['id']}",
                 )
-                patch_date_stopped = st.text_input(
+                patch_date_stopped = date_text_with_picker(
                     "Update date stopped (YYYY-MM-DD)",
-                    value=selected_assoc.get("date_stopped", ""),
+                    text_key="edit_case_intervention_date_stopped_text",
+                    picker_key="edit_case_intervention_date_stopped_picker",
+                    initial_value=selected_assoc.get("date_stopped", ""),
+                    sync_token=f"case-{selected_case_id}-intervention-{selected_assoc['id']}",
                 )
                 patch_note = st.text_area("Update note", value=selected_assoc.get("note", ""))
 
@@ -3994,7 +4155,11 @@ def render_case_complications_section(selected_case: dict[str, Any]) -> None:
                     placeholder="Select complication",
                     key="create_case_complication_select",
                 )
-                date_started = st.text_input("Date started (YYYY-MM-DD)", placeholder="Optional")
+                date_started = date_text_with_picker(
+                    "Date started (YYYY-MM-DD)",
+                    text_key="create_case_complication_date_started_text",
+                    picker_key="create_case_complication_date_started_picker",
+                )
                 note = st.text_area("Note", placeholder="Optional")
 
                 if st.form_submit_button("Add Case Complication"):
@@ -4054,9 +4219,14 @@ def render_case_complications_section(selected_case: dict[str, Any]) -> None:
                     index=edit_complication_index,
                     key="edit_case_complication_select",
                 )
-                patch_date_started = st.text_input(
+                patch_date_started = date_text_with_picker(
                     "Update date started (YYYY-MM-DD)",
-                    value=selected_assoc.get("date_started", ""),
+                    text_key="edit_case_complication_date_started_text",
+                    picker_key="edit_case_complication_date_started_picker",
+                    initial_value=selected_assoc.get("date_started", ""),
+                    sync_token=(
+                        f"case-{selected_assoc['case_id']}-complication-{selected_assoc['complication_id']}"
+                    ),
                 )
                 patch_note = st.text_area("Update note", value=selected_assoc.get("note", ""))
 
@@ -4248,7 +4418,11 @@ def render_patient_pathologies_section(
                     options=pathology_options,
                     format_func=pathology_label,
                 )
-                diagnosed_date = st.text_input("Diagnosed date (YYYY-MM-DD)", placeholder="Optional")
+                diagnosed_date = date_text_with_picker(
+                    "Diagnosed date (YYYY-MM-DD)",
+                    text_key="patient_overview_assoc_create_diagnosed_date_text",
+                    picker_key="patient_overview_assoc_create_diagnosed_date_picker",
+                )
                 severity = st.text_input("Severity", placeholder="Optional")
                 submitted = st.form_submit_button("Create association", width="stretch")
 
@@ -4315,9 +4489,12 @@ def render_patient_pathologies_section(
                     "Update diagnosed date",
                     key="patient_overview_assoc_patch_use_diagnosed_date",
                 )
-                patch_diagnosed_date = st.text_input(
+                patch_diagnosed_date = date_text_with_picker(
                     "Diagnosed date (YYYY-MM-DD)",
-                    value=str(selected_row.get("diagnosed_date") or ""),
+                    text_key="patient_overview_assoc_patch_diagnosed_date_text",
+                    picker_key="patient_overview_assoc_patch_diagnosed_date_picker",
+                    initial_value=str(selected_row.get("diagnosed_date") or ""),
+                    sync_token=f"patient-{patient_id}-pathology-{selected_row.get('pathology_id')}",
                 )
 
                 use_severity = st.checkbox("Update severity", key="patient_overview_assoc_patch_use_severity")
@@ -4418,7 +4595,11 @@ def render_patient_medications_section(
                     options=medication_options,
                     format_func=medication_label,
                 )
-                prescribed_date = st.text_input("Prescribed date (YYYY-MM-DD)", placeholder="Optional")
+                prescribed_date = date_text_with_picker(
+                    "Prescribed date (YYYY-MM-DD)",
+                    text_key="patient_overview_med_assoc_create_prescribed_date_text",
+                    picker_key="patient_overview_med_assoc_create_prescribed_date_picker",
+                )
                 dosage = st.text_input("Dosage", placeholder="Optional")
                 submitted = st.form_submit_button("Create association", width="stretch")
 
@@ -4485,9 +4666,12 @@ def render_patient_medications_section(
                     "Update prescribed date",
                     key="patient_overview_med_assoc_patch_use_prescribed_date",
                 )
-                patch_prescribed_date = st.text_input(
+                patch_prescribed_date = date_text_with_picker(
                     "Prescribed date (YYYY-MM-DD)",
-                    value=str(selected_row.get("prescribed_date") or ""),
+                    text_key="patient_overview_med_assoc_patch_prescribed_date_text",
+                    picker_key="patient_overview_med_assoc_patch_prescribed_date_picker",
+                    initial_value=str(selected_row.get("prescribed_date") or ""),
+                    sync_token=f"patient-{patient_id}-medication-{selected_row.get('medication_id')}",
                 )
 
                 use_dosage = st.checkbox("Update dosage", key="patient_overview_med_assoc_patch_use_dosage")
