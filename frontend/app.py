@@ -1816,20 +1816,20 @@ def render_burn_unit_case_create_tab(
         return
 
     patient_options = [None] + sorted(patients, key=lambda row: int(row.get("id", 0)))
-    provenance_options = [{"id": None, "label": "Not set"}] + [
+    provenance_options = [
         {"id": row.get("id"), "label": provenance_destination_label(row)}
         for row in sorted(provenance_destinations, key=lambda item: int(item.get("id", 0)))
     ]
-    burn_etiology_options = [{"id": None, "label": "Not set"}] + [
+    burn_etiology_options = [
         {"id": row.get("id"), "label": burn_etiology_label(row)}
         for row in sorted(burn_etiologies, key=lambda item: int(item.get("id", 0)))
     ]
-    inhalation_injury_options = [{"id": None, "label": "Not set"}] + [
+    inhalation_injury_options = [
         {"id": row.get("id"), "label": inhalation_injury_label(row)}
         for row in sorted(inhalation_injuries, key=lambda item: int(item.get("id", 0)))
     ]
-    optional_bool_options = ["Not set", "Yes", "No"]
-    optional_bool_map: dict[str, bool | None] = {"Not set": None, "Yes": True, "No": False}
+    optional_bool_options = ["Yes", "No"]
+    optional_bool_map: dict[str | None, bool | None] = {None: None, "Yes": True, "No": False}
 
     with st.form("create_burn_unit_case_form", clear_on_submit=True):
         case_id = st.text_input("Case ID", placeholder="Required integer")
@@ -1837,6 +1837,8 @@ def render_burn_unit_case_create_tab(
             "Patient",
             options=patient_options,
             format_func=lambda row: "Select patient" if row is None else patient_label(row),
+            index=None,
+            placeholder="Select patient",
             key="create_burn_case_patient",
         )
         tbsa_burned = st.text_input("TBSA burned (%)", placeholder="Optional numeric value")
@@ -1847,43 +1849,53 @@ def render_burn_unit_case_create_tab(
             "Admission provenance",
             options=provenance_options,
             format_func=lambda option: option["label"],
+            index=None,
+            placeholder="Select admission provenance",
             key="create_burn_case_admission_provenance",
         )
         release_destination = st.selectbox(
             "Release destination",
             options=provenance_options,
             format_func=lambda option: option["label"],
+            index=None,
+            placeholder="Select release destination",
             key="create_burn_case_release_destination",
         )
         burn_mecanism = st.selectbox(
             "Burn mecanism",
             options=[None, *ALLOWED_BURN_MECANISMS],
             format_func=lambda value: "Not set" if value is None else value,
+            index=None,
+            placeholder="Select burn mecanism",
             key="create_burn_case_mecanism",
         )
         burn_etiology = st.selectbox(
             "Burn etiology",
             options=burn_etiology_options,
             format_func=lambda option: option["label"],
+            index=None,
+            placeholder="Select burn etiology",
             key="create_burn_case_etiology",
         )
         inhalation_injury = st.selectbox(
             "Inhalation injury",
             options=inhalation_injury_options,
             format_func=lambda option: option["label"],
+            index=None,
+            placeholder="Select inhalation injury",
             key="create_burn_case_inhalation_injury",
         )
         violence_related_label = st.radio(
             "Violence related",
             options=optional_bool_options,
-            index=0,
+            index=None,
             horizontal=True,
             key="create_burn_case_violence",
         )
         suicide_attempt_label = st.radio(
             "Suicide attempt",
             options=optional_bool_options,
-            index=0,
+            index=None,
             horizontal=True,
             key="create_burn_case_suicide",
         )
@@ -1891,26 +1903,28 @@ def render_burn_unit_case_create_tab(
             "Accident type",
             options=[None, *ALLOWED_ACCIDENT_TYPES],
             format_func=lambda value: "Not set" if value is None else value,
+            index=None,
+            placeholder="Select accident type",
             key="create_burn_case_accident_type",
         )
         wildfire_label = st.radio(
             "Wildfire",
             options=optional_bool_options,
-            index=0,
+            index=None,
             horizontal=True,
             key="create_burn_case_wildfire",
         )
         bonfire_fogueira_label = st.radio(
             "Bonfire/Fogueira",
             options=optional_bool_options,
-            index=0,
+            index=None,
             horizontal=True,
             key="create_burn_case_bonfire",
         )
         fireplace_lareira_label = st.radio(
             "Fireplace/Lareira",
             options=optional_bool_options,
-            index=0,
+            index=None,
             horizontal=True,
             key="create_burn_case_fireplace",
         )
@@ -1919,16 +1933,18 @@ def render_burn_unit_case_create_tab(
             "Special forces",
             options=[None, *ALLOWED_SPECIAL_FORCES],
             format_func=lambda value: "Not set" if value is None else value,
+            index=None,
+            placeholder="Select special forces",
             key="create_burn_case_special_forces",
         )
         submitted = st.form_submit_button("Create burn unit case", width="stretch")
 
         if submitted:
-            violence_related = optional_bool_map[violence_related_label]
-            suicide_attempt = optional_bool_map[suicide_attempt_label]
-            wildfire = optional_bool_map[wildfire_label]
-            bonfire_fogueira = optional_bool_map[bonfire_fogueira_label]
-            fireplace_lareira = optional_bool_map[fireplace_lareira_label]
+            violence_related = optional_bool_map.get(violence_related_label)
+            suicide_attempt = optional_bool_map.get(suicide_attempt_label)
+            wildfire = optional_bool_map.get(wildfire_label)
+            bonfire_fogueira = optional_bool_map.get(bonfire_fogueira_label)
+            fireplace_lareira = optional_bool_map.get(fireplace_lareira_label)
 
             if not case_id.strip():
                 st.error("Case ID is required.")
@@ -1945,11 +1961,11 @@ def render_burn_unit_case_create_tab(
                     "admission_date": parse_optional_date_input(admission_date),
                     "burn_date": parse_optional_date_input(burn_date),
                     "release_date": parse_optional_date_input(release_date),
-                    "admission_provenance": admission_provenance["id"],
-                    "release_destination": release_destination["id"],
+                    "admission_provenance": admission_provenance["id"] if admission_provenance else None,
+                    "release_destination": release_destination["id"] if release_destination else None,
                     "burn_mecanism": burn_mecanism,
-                    "burn_etiology": burn_etiology["id"],
-                    "inhalation_injury": inhalation_injury["id"],
+                    "burn_etiology": burn_etiology["id"] if burn_etiology else None,
+                    "inhalation_injury": inhalation_injury["id"] if inhalation_injury else None,
                     "violence_related": violence_related,
                     "suicide_attempt": suicide_attempt,
                     "accident_type": accident_type,
@@ -2711,18 +2727,33 @@ def render_case_burns_section(selected_case: dict[str, Any]) -> None:
     op_tabs = st.tabs(["Add", "Edit", "Delete"])
     
     with op_tabs[0]:
-        with st.form("create_case_burn_form"):
+        with st.form("create_case_burn_form", clear_on_submit=True):
             bd_options = [{"id": d["id"], "label": f"{d['id']} - {d['depth_new']}"} for d in burn_depths]
             loc_options = [{"id": l["id"], "label": f"{l['id']} - {l['name']}"} for l in anatomic_locations]
             
             if not bd_options: bd_options = [{"id": 0, "label": "No depths available"}]
             if not loc_options: loc_options = [{"id": 0, "label": "No locations available"}]
 
-            sel_depth = st.selectbox("Burn Depth", options=bd_options, format_func=lambda x: x["label"])
-            sel_loc = st.selectbox("Anatomic Location", options=loc_options, format_func=lambda x: x["label"])
+            sel_depth = st.selectbox(
+                "Burn Depth",
+                options=bd_options,
+                format_func=lambda x: x["label"],
+                index=None,
+                placeholder="Select burn depth",
+            )
+            sel_loc = st.selectbox(
+                "Anatomic Location",
+                options=loc_options,
+                format_func=lambda x: x["label"],
+                index=None,
+                placeholder="Select anatomic location",
+            )
             note = st.text_area("Note", placeholder="Optional")
             
             if st.form_submit_button("Add Case Burn"):
+                if sel_depth is None or sel_loc is None:
+                    st.error("Burn depth and anatomic location are required.")
+                    return
                 payload = {
                     "case_id": case_id,
                     "burn_depth_id": sel_depth["id"],
@@ -2823,18 +2854,27 @@ def render_case_associated_injuries_section(selected_case: dict[str, Any]) -> No
     op_tabs = st.tabs(["Add", "Edit", "Delete"])
     
     with op_tabs[0]:
-        with st.form("create_case_associated_injury_form"):
+        with st.form("create_case_associated_injury_form", clear_on_submit=True):
             path_options = [{"id": p["id"], "label": f"{p['id']} - {p['name']}"} for p in pathologies]
             
             if not path_options: path_options = [{"id": 0, "label": "No pathologies available"}]
 
-            sel_injury = st.selectbox("Associated Injury (Pathology)", options=path_options, format_func=lambda x: x["label"])
+            sel_injury = st.selectbox(
+                "Associated Injury (Pathology)",
+                options=path_options,
+                format_func=lambda x: x["label"],
+                index=None,
+                placeholder="Select associated injury",
+            )
             # The schema allows date_of_injury, let's use date_input with a default to today
             import datetime
             date_of_injury = st.date_input("Date of Injury", value=None)
             note = st.text_area("Note", placeholder="Optional")
             
             if st.form_submit_button("Add Associated Injury"):
+                if sel_injury is None:
+                    st.error("Associated injury is required.")
+                    return
                 payload = {
                     "case_id": case_id,
                     "injury_id": sel_injury["id"],
@@ -2941,7 +2981,7 @@ def render_case_infections_section(selected_case: dict[str, Any]) -> None:
     op_tabs = st.tabs(["Add", "Edit", "Delete"])
 
     with op_tabs[0]:
-        with st.form("create_case_infection_form"):
+        with st.form("create_case_infection_form", clear_on_submit=True):
             infection_options = [
                 {"id": row["id"], "label": f"{row['id']} - {row.get('name', 'Unnamed infection')}"}
                 for row in infections
@@ -2954,11 +2994,16 @@ def render_case_infections_section(selected_case: dict[str, Any]) -> None:
                     "Infection",
                     options=infection_options,
                     format_func=lambda option: option["label"],
+                    index=None,
+                    placeholder="Select infection",
                 )
                 date_of_infection = st.text_input("Date of infection (YYYY-MM-DD)", placeholder="Optional")
                 note = st.text_area("Note", placeholder="Optional")
 
                 if st.form_submit_button("Add Case Infection"):
+                    if selected_infection is None:
+                        st.error("Infection is required.")
+                        return
                     try:
                         parsed_date = parse_optional_date_input(date_of_infection)
                     except ValueError:
@@ -3112,7 +3157,7 @@ def render_case_antibiotics_section(selected_case: dict[str, Any]) -> None:
     op_tabs = st.tabs(["Add", "Edit", "Delete"])
 
     with op_tabs[0]:
-        with st.form("create_case_antibiotic_form"):
+        with st.form("create_case_antibiotic_form", clear_on_submit=True):
             if not antibiotic_options:
                 st.info("No antibiotics available. Create antibiotics first in the Antibiotics tab.")
             else:
@@ -3120,12 +3165,16 @@ def render_case_antibiotics_section(selected_case: dict[str, Any]) -> None:
                     "Antibiotic",
                     options=antibiotic_options,
                     format_func=lambda option: option["label"],
+                    index=None,
+                    placeholder="Select antibiotic",
                     key="create_case_antibiotic_antibiotic_select",
                 )
                 selected_indication = st.selectbox(
                     "Indication",
                     options=indication_options,
                     format_func=lambda option: option["label"],
+                    index=None,
+                    placeholder="Select indication",
                     key="create_case_antibiotic_indication_select",
                 )
                 date_started = st.text_input("Date started (YYYY-MM-DD)", placeholder="Optional")
@@ -3133,6 +3182,9 @@ def render_case_antibiotics_section(selected_case: dict[str, Any]) -> None:
                 note = st.text_area("Note", placeholder="Optional")
 
                 if st.form_submit_button("Add Case Antibiotic"):
+                    if selected_antibiotic is None or selected_indication is None:
+                        st.error("Antibiotic and indication are required.")
+                        return
                     try:
                         parsed_date_started = parse_optional_date_input(date_started)
                         parsed_date_stopped = parse_optional_date_input(date_stopped)
@@ -3327,7 +3379,7 @@ def render_case_microbiology_section(selected_case: dict[str, Any]) -> None:
     op_tabs = st.tabs(["Add", "Edit", "Delete"])
 
     with op_tabs[0]:
-        with st.form("create_case_microbiology_form"):
+        with st.form("create_case_microbiology_form", clear_on_submit=True):
             if not specimen_options:
                 st.info("No microbiology specimens available. Create them in Microbiology Specimens.")
                 st.form_submit_button("Add Case Microbiology", disabled=True)
@@ -3339,12 +3391,16 @@ def render_case_microbiology_section(selected_case: dict[str, Any]) -> None:
                     "Specimen",
                     options=specimen_options,
                     format_func=lambda option: option["label"],
+                    index=None,
+                    placeholder="Select specimen",
                     key="create_case_microbiology_specimen_select",
                 )
                 selected_agent = st.selectbox(
                     "Microorganism",
                     options=agent_options,
                     format_func=lambda option: option["label"],
+                    index=None,
+                    placeholder="Select microorganism",
                     key="create_case_microbiology_agent_select",
                 )
                 hospital_test_id = st.text_input("Hospital test id", placeholder="Optional")
@@ -3354,6 +3410,9 @@ def render_case_microbiology_section(selected_case: dict[str, Any]) -> None:
 
                 submitted = st.form_submit_button("Add Case Microbiology")
                 if submitted:
+                    if selected_specimen is None or selected_agent is None:
+                        st.error("Specimen and microorganism are required.")
+                        return
                     try:
                         parsed_collection_date = parse_optional_date_input(date_of_collection)
                         parsed_reporting_date = parse_optional_date_input(date_of_reporting)
@@ -3533,7 +3592,7 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
     op_tabs = st.tabs(["Add", "Edit", "Delete"])
 
     with op_tabs[0]:
-        with st.form("create_case_procedure_form"):
+        with st.form("create_case_procedure_form", clear_on_submit=True):
             if not procedure_options:
                 st.info("No medical procedures available. Create them in Medical Procedures.")
                 st.form_submit_button("Add Case Procedure", disabled=True)
@@ -3542,17 +3601,25 @@ def render_case_procedures_section(selected_case: dict[str, Any]) -> None:
                     "Procedure",
                     options=procedure_options,
                     format_func=lambda option: option["label"],
+                    index=None,
+                    placeholder="Select procedure",
                     key="create_case_procedure_procedure_select",
                 )
                 date_started = st.text_input("Date started (YYYY-MM-DD)", placeholder="Optional")
                 date_stopped = st.text_input("Date stopped (YYYY-MM-DD)", placeholder="Optional")
-                before_admission = st.checkbox(
+                before_admission = st.selectbox(
                     "Procedure was done before admission",
-                    value=False,
+                    options=[True, False],
+                    format_func=lambda value: "Yes" if value else "No",
+                    index=None,
+                    placeholder="Select yes or no",
                 )
                 note = st.text_area("Note", placeholder="Optional")
 
                 if st.form_submit_button("Add Case Procedure"):
+                    if selected_procedure is None or before_admission is None:
+                        st.error("Procedure and before admission are required.")
+                        return
                     try:
                         parsed_date_started = parse_optional_date_input(date_started)
                         parsed_date_stopped = parse_optional_date_input(date_stopped)
@@ -3727,7 +3794,7 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
     op_tabs = st.tabs(["Add", "Edit", "Delete"])
 
     with op_tabs[0]:
-        with st.form("create_case_surgical_intervention_form"):
+        with st.form("create_case_surgical_intervention_form", clear_on_submit=True):
             if not intervention_options:
                 st.info("No surgical interventions available. Create them in Surgical Interventions.")
                 st.form_submit_button("Add Case Surgical Intervention", disabled=True)
@@ -3736,6 +3803,8 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
                     "Intervention",
                     options=intervention_options,
                     format_func=lambda option: option["label"],
+                    index=None,
+                    placeholder="Select intervention",
                     key="create_case_surgical_intervention_select",
                 )
                 date_started = st.text_input("Date started (YYYY-MM-DD)", placeholder="Optional")
@@ -3743,6 +3812,9 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
                 note = st.text_area("Note", placeholder="Optional")
 
                 if st.form_submit_button("Add Case Surgical Intervention"):
+                    if selected_intervention is None:
+                        st.error("Intervention is required.")
+                        return
                     try:
                         parsed_date_started = parse_optional_date_input(date_started)
                         parsed_date_stopped = parse_optional_date_input(date_stopped)
@@ -3909,7 +3981,7 @@ def render_case_complications_section(selected_case: dict[str, Any]) -> None:
     op_tabs = st.tabs(["Add", "Edit", "Delete"])
 
     with op_tabs[0]:
-        with st.form("create_case_complication_form"):
+        with st.form("create_case_complication_form", clear_on_submit=True):
             if not complication_options:
                 st.info("No complications available. Create them in Complications.")
                 st.form_submit_button("Add Case Complication", disabled=True)
@@ -3918,12 +3990,17 @@ def render_case_complications_section(selected_case: dict[str, Any]) -> None:
                     "Complication",
                     options=complication_options,
                     format_func=lambda option: option["label"],
+                    index=None,
+                    placeholder="Select complication",
                     key="create_case_complication_select",
                 )
                 date_started = st.text_input("Date started (YYYY-MM-DD)", placeholder="Optional")
                 note = st.text_area("Note", placeholder="Optional")
 
                 if st.form_submit_button("Add Case Complication"):
+                    if selected_complication is None:
+                        st.error("Complication is required.")
+                        return
                     try:
                         parsed_date_started = parse_optional_date_input(date_started)
                     except ValueError:
