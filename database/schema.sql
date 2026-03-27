@@ -298,13 +298,15 @@ CREATE TABLE IF NOT EXISTS case_surgical_interventions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     case_id INTEGER NOT NULL,
     intervention_id INTEGER NOT NULL,
+    location INTEGER,
     date_started DATE,
     date_stopped DATE,
     note TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (case_id) REFERENCES burn_unit_cases(id),
-    FOREIGN KEY (intervention_id) REFERENCES surgical_interventions(id)
+    FOREIGN KEY (intervention_id) REFERENCES surgical_interventions(id),
+    FOREIGN KEY (location) REFERENCES anatomic_locations(id)
 );
 -- Table: complications
 CREATE TABLE IF NOT EXISTS complications (

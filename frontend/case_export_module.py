@@ -345,6 +345,14 @@ def _collect_export_bundle(
                 "Intervention row ID": row.get("id"),
                 "Intervention ID": row.get("intervention_id"),
                 "Intervention": interventions_by_id.get(row.get("intervention_id"), {}).get("name", "Unknown"),
+                "Location": (
+                    ""
+                    if row.get("location") is None
+                    else (
+                        f"{row.get('location')} - "
+                        f"{anatomic_locations_by_id.get(row.get('location'), {}).get('name', 'Unknown')}"
+                    )
+                ),
                 "Date started": row.get("date_started"),
                 "Date stopped": row.get("date_stopped"),
                 "Note": row.get("note"),

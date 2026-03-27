@@ -849,6 +849,7 @@ class CaseSurgicalInterventionCreate(BaseModel):
 
     case_id: int
     intervention_id: int
+    location: int | None = None
     date_started: str | None = None
     date_stopped: str | None = None
     note: str | None = None
@@ -859,6 +860,7 @@ class CaseSurgicalInterventionPatch(BaseModel):
 
     case_id: int | None = None
     intervention_id: int | None = None
+    location: int | None = None
     date_started: str | None = None
     date_stopped: str | None = None
     note: str | None = None
@@ -870,6 +872,7 @@ class CaseSurgicalInterventionRead(BaseModel):
     id: int
     case_id: int
     intervention_id: int
+    location: int | None = None
     date_started: str | None = None
     date_stopped: str | None = None
     note: str | None = None
@@ -4413,15 +4416,17 @@ def create_case_surgical_intervention(payload: CaseSurgicalInterventionCreate) -
                 INSERT INTO case_surgical_interventions (
                     case_id,
                     intervention_id,
+                    location,
                     date_started,
                     date_stopped,
                     note
                 )
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload.case_id,
                     payload.intervention_id,
+                    payload.location,
                     payload.date_started,
                     payload.date_stopped,
                     payload.note,
@@ -4461,6 +4466,7 @@ def patch_case_surgical_intervention(
     allowed_fields = {
         "case_id",
         "intervention_id",
+        "location",
         "date_started",
         "date_stopped",
         "note",

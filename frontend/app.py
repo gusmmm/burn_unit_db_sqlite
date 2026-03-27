@@ -3976,15 +3976,24 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
     try:
         case_interventions = load_case_surgical_interventions(case_id=selected_case_id)
         interventions = load_surgical_interventions()
+        anatomic_locations = load_anatomic_locations()
     except Exception as exc:
         st.error(str(exc))
         card_close()
         return
 
     interventions_by_id = {row["id"]: row for row in interventions if row.get("id") is not None}
+    anatomic_locations_by_id = {
+        row["id"]: row for row in anatomic_locations if row.get("id") is not None
+    }
     intervention_options = [
         {"id": row["id"], "label": surgical_intervention_label(row)}
         for row in interventions
+        if row.get("id") is not None
+    ]
+    location_options = [
+        {"id": row["id"], "label": f"{row['id']} - {row.get('name', 'Unknown location')}"}
+        for row in anatomic_locations
         if row.get("id") is not None
     ]
 
@@ -4000,6 +4009,14 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
                         f"[{row.get('intervention_id')}] "
                         f"{intervention.get('name', 'Unknown intervention')}"
                     ),
+                    "Location": (
+                        ""
+                        if row.get("location") is None
+                        else (
+                            f"[{row.get('location')}] "
+                            f"{anatomic_locations_by_id.get(row.get('location'), {}).get('name', 'Unknown location')}"
+                        )
+                    ),
                     "Date started": row.get("date_started") or "",
                     "Date stopped": row.get("date_stopped") or "",
                     "Note": row.get("note") or "",
@@ -4014,6 +4031,9 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
             if not intervention_options:
                 st.info("No surgical interventions available. Create them in Surgical Interventions.")
                 st.form_submit_button("Add Case Surgical Intervention", disabled=True)
+            elif not location_options:
+                st.info("No anatomic locations available. Create them first in Anatomic Locations.")
+                st.form_submit_button("Add Case Surgical Intervention", disabled=True)
             else:
                 selected_intervention = st.selectbox(
                     "Intervention",
@@ -4022,6 +4042,14 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
                     index=None,
                     placeholder="Select intervention",
                     key="create_case_surgical_intervention_select",
+                )
+                selected_location = st.selectbox(
+                    "Anatomic location",
+                    options=location_options,
+                    format_func=lambda option: option["label"],
+                    index=None,
+                    placeholder="Select anatomic location",
+                    key="create_case_surgical_intervention_location_select",
                 )
                 date_started = date_text_with_picker(
                     "Date started (YYYY-MM-DD)",
@@ -4036,8 +4064,8 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
                 note = st.text_area("Note", placeholder="Optional")
 
                 if st.form_submit_button("Add Case Surgical Intervention"):
-                    if selected_intervention is None:
-                        st.error("Intervention is required.")
+                    if selected_intervention is None or selected_location is None:
+                        st.error("Intervention and anatomic location are required.")
                         return
                     try:
                         parsed_date_started = parse_optional_date_input(date_started)
@@ -4048,6 +4076,7 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
                         payload = {
                             "case_id": selected_case_id,
                             "intervention_id": selected_intervention["id"],
+                            "location": selected_location["id"],
                             "date_started": parsed_date_started,
                             "date_stopped": parsed_date_stopped,
                             "note": optional_text(note),
@@ -4060,80 +4089,94 @@ def render_case_surgical_interventions_section(selected_case: dict[str, Any]) ->
 
     with op_tabs[1]:
         if case_interventions:
-            with st.form("edit_case_surgical_intervention_form"):
-                assoc_options = [
-                    {
-                        "id": row["id"],
-                        "case_id": row["case_id"],
-                        "intervention_id": row["intervention_id"],
-                        "date_started": row.get("date_started") or "",
-                        "date_stopped": row.get("date_stopped") or "",
-                        "note": row.get("note") or "",
-                        "label": (
-                            f"#{row['id']} | {row['case_id']} / {row['intervention_id']} - "
-                            f"{interventions_by_id.get(row['intervention_id'], {}).get('name', 'Unknown intervention')}"
-                        ),
-                    }
-                    for row in case_interventions
-                ]
-                selected_assoc = st.selectbox(
-                    "Select case intervention",
-                    options=assoc_options,
-                    format_func=lambda option: option["label"],
-                    key="edit_case_surgical_intervention_target_select",
-                )
-
-                edit_intervention_index = find_index_by_key(
-                    intervention_options,
-                    "id",
-                    selected_assoc["intervention_id"],
-                )
-
-                edited_intervention = st.selectbox(
-                    "Intervention",
-                    options=intervention_options,
-                    format_func=lambda option: option["label"],
-                    index=edit_intervention_index,
-                    key="edit_case_surgical_intervention_select",
-                )
-                patch_date_started = date_text_with_picker(
-                    "Update date started (YYYY-MM-DD)",
-                    text_key="edit_case_intervention_date_started_text",
-                    picker_key="edit_case_intervention_date_started_picker",
-                    initial_value=selected_assoc.get("date_started", ""),
-                    sync_token=f"case-{selected_case_id}-intervention-{selected_assoc['id']}",
-                )
-                patch_date_stopped = date_text_with_picker(
-                    "Update date stopped (YYYY-MM-DD)",
-                    text_key="edit_case_intervention_date_stopped_text",
-                    picker_key="edit_case_intervention_date_stopped_picker",
-                    initial_value=selected_assoc.get("date_stopped", ""),
-                    sync_token=f"case-{selected_case_id}-intervention-{selected_assoc['id']}",
-                )
-                patch_note = st.text_area("Update note", value=selected_assoc.get("note", ""))
-
-                if st.form_submit_button("Update Case Surgical Intervention"):
-                    try:
-                        parsed_date_started = parse_optional_date_input(patch_date_started)
-                        parsed_date_stopped = parse_optional_date_input(patch_date_stopped)
-                    except ValueError:
-                        st.error("Dates must use YYYY-MM-DD format.")
-                    else:
-                        payload = {
-                            "intervention_id": edited_intervention["id"],
-                            "date_started": parsed_date_started,
-                            "date_stopped": parsed_date_stopped,
-                            "note": optional_text(patch_note),
+            if not location_options:
+                st.info("No anatomic locations available. Create them first in Anatomic Locations.")
+            else:
+                with st.form("edit_case_surgical_intervention_form"):
+                    assoc_options = [
+                        {
+                            "id": row["id"],
+                            "case_id": row["case_id"],
+                            "intervention_id": row["intervention_id"],
+                            "location": row.get("location"),
+                            "date_started": row.get("date_started") or "",
+                            "date_stopped": row.get("date_stopped") or "",
+                            "note": row.get("note") or "",
+                            "label": (
+                                f"#{row['id']} | {row['case_id']} / {row['intervention_id']} @ "
+                                f"{row.get('location') if row.get('location') is not None else '-'} - "
+                                f"{interventions_by_id.get(row['intervention_id'], {}).get('name', 'Unknown intervention')}"
+                            ),
                         }
-                        status_code, data = request_json(
-                            "PATCH",
-                            f"/case-surgical-interventions/{selected_assoc['id']}",
-                            payload,
-                        )
-                        show_api_result(status_code, data)
-                        if 200 <= status_code < 300:
-                            load_case_surgical_interventions.clear()
-                            st.rerun()
+                        for row in case_interventions
+                    ]
+                    selected_assoc = st.selectbox(
+                        "Select case intervention",
+                        options=assoc_options,
+                        format_func=lambda option: option["label"],
+                        key="edit_case_surgical_intervention_target_select",
+                    )
+
+                    edit_intervention_index = find_index_by_key(
+                        intervention_options,
+                        "id",
+                        selected_assoc["intervention_id"],
+                    )
+
+                    edited_intervention = st.selectbox(
+                        "Intervention",
+                        options=intervention_options,
+                        format_func=lambda option: option["label"],
+                        index=edit_intervention_index,
+                        key="edit_case_surgical_intervention_select",
+                    )
+                    edit_location_index = find_index_by_key(location_options, "id", selected_assoc.get("location"))
+                    edited_location = st.selectbox(
+                        "Anatomic location",
+                        options=location_options,
+                        format_func=lambda option: option["label"],
+                        index=edit_location_index,
+                        key="edit_case_surgical_intervention_location_select",
+                    )
+                    patch_date_started = date_text_with_picker(
+                        "Update date started (YYYY-MM-DD)",
+                        text_key="edit_case_intervention_date_started_text",
+                        picker_key="edit_case_intervention_date_started_picker",
+                        initial_value=selected_assoc.get("date_started", ""),
+                        sync_token=f"case-{selected_case_id}-intervention-{selected_assoc['id']}",
+                    )
+                    patch_date_stopped = date_text_with_picker(
+                        "Update date stopped (YYYY-MM-DD)",
+                        text_key="edit_case_intervention_date_stopped_text",
+                        picker_key="edit_case_intervention_date_stopped_picker",
+                        initial_value=selected_assoc.get("date_stopped", ""),
+                        sync_token=f"case-{selected_case_id}-intervention-{selected_assoc['id']}",
+                    )
+                    patch_note = st.text_area("Update note", value=selected_assoc.get("note", ""))
+
+                    if st.form_submit_button("Update Case Surgical Intervention"):
+                        try:
+                            parsed_date_started = parse_optional_date_input(patch_date_started)
+                            parsed_date_stopped = parse_optional_date_input(patch_date_stopped)
+                        except ValueError:
+                            st.error("Dates must use YYYY-MM-DD format.")
+                        else:
+                            payload = {
+                                "intervention_id": edited_intervention["id"],
+                                "location": edited_location["id"],
+                                "date_started": parsed_date_started,
+                                "date_stopped": parsed_date_stopped,
+                                "note": optional_text(patch_note),
+                            }
+                            status_code, data = request_json(
+                                "PATCH",
+                                f"/case-surgical-interventions/{selected_assoc['id']}",
+                                payload,
+                            )
+                            show_api_result(status_code, data)
+                            if 200 <= status_code < 300:
+                                load_case_surgical_interventions.clear()
+                                st.rerun()
 
     with op_tabs[2]:
         if case_interventions:
