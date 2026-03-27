@@ -191,11 +191,13 @@ def _build_pdf_table(pdf: FPDF, title: str, columns: list[str], rows: list[dict[
 
     pdf.set_font("Helvetica", "", body_font_size)
     for row_index, row in enumerate(table_rows):
+        # Compute wrapped lines for each cell and the max number of lines in this row
         row_lines = [
             wrap_cell_text(row.get(col, ""), width - (2 * pad_x))
             for col, width in zip(columns, col_widths)
         ]
-        row_height = (max(len(lines) for lines in row_lines) * line_height) + (2 * pad_y)
+        max_lines = max(len(lines) for lines in row_lines)
+        row_height = (max_lines * line_height) + (2 * pad_y)
 
         if pdf.get_y() + row_height > pdf.page_break_trigger:
             pdf.add_page()
@@ -211,13 +213,21 @@ def _build_pdf_table(pdf: FPDF, title: str, columns: list[str], rows: list[dict[
         else:
             pdf.set_fill_color(255, 255, 255)
 
-        for cell_lines, width in zip(row_lines, col_widths):
+        # Draw each cell in the row, always using the full row_height
+        for cell_idx, (cell_lines, width) in enumerate(zip(row_lines, col_widths)):
             cell_x = pdf.get_x()
+            # Draw cell rectangle
             pdf.rect(cell_x, row_top_y, width, row_height, style="DF")
+            # Write text, vertically top-aligned
             pdf.set_xy(cell_x + pad_x, row_top_y + pad_y)
-            pdf.multi_cell(width - (2 * pad_x), line_height, "\n".join(cell_lines), border=0)
+            # Only write as many lines as fit in the cell
+            for i in range(max_lines):
+                line = cell_lines[i] if i < len(cell_lines) else ""
+                pdf.cell(width - (2 * pad_x), line_height, line, border=0, ln=2)
+            # Move X to the right edge of the cell, Y back to row_top_y
             pdf.set_xy(cell_x + width, row_top_y)
 
+        # After the row, move Y to the bottom of the row
         pdf.set_xy(start_x, row_top_y + row_height)
 
     pdf.ln(3)
