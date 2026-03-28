@@ -1,6 +1,8 @@
 # private data
 private/*
-private*
+*private*
+**/*private*/**
+**/*private*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
